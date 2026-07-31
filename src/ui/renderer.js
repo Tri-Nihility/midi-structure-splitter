@@ -31,7 +31,7 @@ export function renderReconstruction(data, result) {
   const container = document.getElementById('reconContainer');
   if (!result.patterns.length && !result.trunk.length) {
     container.innerHTML =
-      '<div class="empty-state"><div class="icon">🏗️</div><p>无重建数据</p></div>';
+      '<div class="empty-state"><div class="icon">[=]</div><p>无重建数据</p></div>';
     return;
   }
 
@@ -56,11 +56,11 @@ export function renderReconstruction(data, result) {
   });
 
   let html = '<div class="recon-legend">';
-  html += `<div class="recon-legend-item"><div class="recon-dot" style="background:var(--trunk)"></div>主干 (${result.trunk.length})</div>`;
+  html += `<div class="recon-legend-item"><div class="recon-dot" style="background:var(--trunk)"></div> (${result.trunk.length})</div>`;
   result.patterns.forEach((p, i) => {
-    html += `<div class="recon-legend-item"><div class="recon-dot" style="background:${PALETTE[i % PALETTE.length]}"></div>模式 #${i + 1} (${p.occurrences.length}次)</div>`;
+    html += `<div class="recon-legend-item"><div class="recon-dot" style="background:${PALETTE[i % PALETTE.length]}"></div> #${i + 1} (${p.occurrences.length})</div>`;
   });
-  html += `<div class="recon-legend-item" style="margin-left:auto"><span style="color:var(--text2)">压缩 ${result.compressionRate.toFixed(1)}%</span></div>`;
+  html += `<div class="recon-legend-item" style="margin-left:auto"><span style="color:var(--text2)"> ${result.compressionRate.toFixed(1)}%</span></div>`;
   html += '</div>';
 
   html += '<div class="recon-canvas"><div class="recon-inner">';
@@ -75,15 +75,15 @@ export function renderReconstruction(data, result) {
         ? PALETTE[patId % PALETTE.length]
         : 'var(--trunk)';
     const isPattern = patId !== undefined;
-    html += `<div class="recon-note ${isPattern ? '' : 'trunk'}" style="left:${left}%;width:${width}%;bottom:${bottom}%;height:5px;background:${color}" title="${noteName(n.pitch)} T${n.track} @${n.start} ${isPattern ? '模式#' + (patId + 1) : '主干'}"></div>`;
+    html += `<div class="recon-note ${isPattern ? '' : 'trunk'}" style="left:${left}%;width:${width}%;bottom:${bottom}%;height:5px;background:${color}" title="${noteName(n.pitch)} T${n.track} @${n.start} ${isPattern ? '#' + (patId + 1) : ''}"></div>`;
   });
   html += '</div></div>';
 
   html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin-top:.5rem">';
-  html += `<div class="info-item"><div class="val">${result.patterns.length}</div><div class="lbl">模式数</div></div>`;
-  html += `<div class="info-item"><div class="val">${result.instanceCount}</div><div class="lbl">实例数</div></div>`;
-  html += `<div class="info-item"><div class="val" style="color:var(--trunk)">${result.trunk.length}</div><div class="lbl">主干音符</div></div>`;
-  html += `<div class="info-item"><div class="val">${result.compressionRate.toFixed(1)}%</div><div class="lbl">压缩率</div></div>`;
+  html += `<div class="info-item"><div class="val">${result.patterns.length}</div><div class="lbl"></div></div>`;
+  html += `<div class="info-item"><div class="val">${result.instanceCount}</div><div class="lbl"></div></div>`;
+  html += `<div class="info-item"><div class="val" style="color:var(--trunk)">${result.trunk.length}</div><div class="lbl"></div></div>`;
+  html += `<div class="info-item"><div class="val">${result.compressionRate.toFixed(1)}%</div><div class="lbl"></div></div>`;
   html += '</div>';
 
   container.innerHTML = html;
@@ -98,13 +98,12 @@ export function renderPatterns(result) {
   const container = document.getElementById('patternsContainer');
   if (!result.patterns.length) {
     container.innerHTML =
-      '<div class="empty-state"><div class="icon">🔄</div><p>未检测到重复模式</p></div>';
+      '<div class="empty-state"><div class="icon">[~]</div><p>未检测到重复模式</p></div>';
     return;
   }
 
   let html = '';
   result.patterns.forEach((p, i) => {
-    const color = PALETTE[i % PALETTE.length];
     const pitches = p.notes.map((n) => n.pitch);
     const minRP = Math.min(...pitches);
     const maxRP = Math.max(...pitches);
@@ -112,11 +111,11 @@ export function renderPatterns(result) {
 
     html += `<div class="pattern-card" style="border-left:3px solid ${color}">
       <div class="pattern-card-header">
-        <span class="pattern-card-title" style="color:${color}">模式 #${i + 1} (COSIATEC轮次 ${p.round})</span>
+        <span class="pattern-card-title" style="color:${color}"> #${i + 1} (COSIATEC ${p.round})</span>
         <span class="pattern-card-meta">
-          <span>${p.notes.length} 音符模板</span>
-          <span>${p.occurrences.length} 实例</span>
-          <span>压缩比 ${p.compressionRatio.toFixed(2)}</span>
+          <span>${p.notes.length} </span>
+          <span>${p.occurrences.length} </span>
+          <span> ${p.compressionRatio.toFixed(2)}</span>
         </span>
       </div>
       <div class="pattern-visual">
@@ -127,7 +126,7 @@ export function renderPatterns(result) {
           })
           .join('')}
       </div>
-      <div style="font-size:.65rem;color:var(--text2);margin:.2rem 0">实例排布 (delay=起始偏移, trans=移调):</div>
+      <div style="font-size:.65rem;color:var(--text2);margin:.2rem 0"> (delay=, trans=):</div>
       <div>
         ${p.occurrences
           .map(
@@ -152,17 +151,16 @@ export function renderTrunk(result, noteData) {
   const container = document.getElementById('trunkContainer');
   if (!result.trunk.length) {
     container.innerHTML =
-      '<div class="empty-state"><div class="icon">🌳</div><p>所有音符都被模式覆盖，无主干</p></div>';
+      '<div class="empty-state"><div class="icon">[#]</div><p>所有音符都被模式覆盖，无主干</p></div>';
     return;
   }
 
   const maxT = Math.max(...result.trunk.map((n) => n.end), 1);
-  const scale = 100 / maxT;
   const minP = Math.min(...result.trunk.map((n) => n.pitch));
   const maxP = Math.max(...result.trunk.map((n) => n.pitch));
   const pRange = maxP - minP || 1;
 
-  let html = `<div style="font-size:.8rem;color:var(--text2);margin-bottom:.4rem">${result.trunk.length} 个独立音符 (${((result.trunk.length / result.totalNotes) * 100).toFixed(1)}%)</div>`;
+  let html = `<div style="font-size:.8rem;color:var(--text2);margin-bottom:.4rem">${result.trunk.length}  (${((result.trunk.length / result.totalNotes) * 100).toFixed(1)}%)</div>`;
   html += '<div class="trunk-timeline">';
   result.trunk.forEach((n) => {
     const left = n.start * scale;
@@ -181,7 +179,7 @@ export function renderTrunk(result, noteData) {
 
   html += '<div style="margin-top:.6rem">';
   Object.entries(byTrack).forEach(([tid, arr]) => {
-    html += `<div style="font-size:.75rem;color:var(--text2);margin:.3rem 0">轨道 ${tid}: ${arr.length} 音符</div>`;
+    html += `<div style="font-size:.75rem;color:var(--text2);margin:.3rem 0"> ${tid}: ${arr.length} </div>`;
     html += '<div style="display:flex;flex-wrap:wrap;gap:.15rem">';
     arr.forEach((n) => {
       html += `<span style="font-size:.65rem;background:var(--panel);padding:.1rem .3rem;border-radius:3px;color:var(--trunk2)">${noteName(n.pitch)}@${Math.round(n.start / (noteData?.ppq || 96))}</span>`;
@@ -213,7 +211,7 @@ export function renderTimeline(data, result) {
   // Per-track timelines
   tracks.forEach((tid) => {
     html += `<div class="card" style="margin-bottom:.5rem">
-      <div style="font-size:.8rem;font-weight:600;margin-bottom:.3rem">轨道 ${tid}</div>
+      <div style="font-size:.8rem;font-weight:600;margin-bottom:.3rem"> ${tid}</div>
       <div style="position:relative;height:40px;background:#0d0d14;border-radius:6px;overflow:hidden">`;
 
     const trunkNotes = result.trunk
@@ -225,11 +223,11 @@ export function renderTimeline(data, result) {
       if (n.start > lastEnd) {
         const left = lastEnd * scale;
         const width = (n.start - lastEnd) * scale;
-        html += `<div style="position:absolute;left:${left}%;width:${width}%;top:0;bottom:0;background:repeating-linear-gradient(45deg,#1e1e30,#1e1e30 3px,#151520 3px,#151520 6px);opacity:.6" title="间隙"></div>`;
+        html += `<div style="position:absolute;left:${left}%;width:${width}%;top:0;bottom:0;background:repeating-linear-gradient(45deg,#1e1e30,#1e1e30 3px,#151520 3px,#151520 6px);opacity:.6" title=""></div>`;
       }
       const left = n.start * scale;
       const width = Math.max(0.3, n.dur * scale);
-      html += `<div style="position:absolute;left:${left}%;width:${width}%;top:0;bottom:0;background:var(--trunk);opacity:.7" title="主干"></div>`;
+      html += `<div style="position:absolute;left:${left}%;width:${width}%;top:0;bottom:0;background:var(--trunk);opacity:.7" title=""></div>`;
       lastEnd = Math.max(lastEnd, n.end);
     });
 
@@ -239,7 +237,7 @@ export function renderTimeline(data, result) {
         .forEach((o) => {
           const left = o.start * scale;
           const width = Math.max(0.3, (o.end - o.start) * scale);
-          html += `<div style="position:absolute;left:${left}%;width:${width}%;top:0;bottom:0;background:${PALETTE[pi % PALETTE.length]};opacity:.75;border:1px solid rgba(255,255,255,.1);border-radius:2px" title="模式#${pi + 1} 拍${Math.round(o.start / data.ppq)}-${Math.round(o.end / data.ppq)}"></div>`;
+          html += `<div style="position:absolute;left:${left}%;width:${width}%;top:0;bottom:0;background:${PALETTE[pi % PALETTE.length]};opacity:.75;border:1px solid rgba(255,255,255,.1);border-radius:2px" title="#${pi + 1} ${Math.round(o.start / data.ppq)}-${Math.round(o.end / data.ppq)}"></div>`;
         });
     });
 
@@ -248,14 +246,14 @@ export function renderTimeline(data, result) {
 
   // Overall timeline
   html += `<div class="card">
-    <div style="font-size:.8rem;font-weight:600;margin-bottom:.3rem">整体时间轴</div>
+    <div style="font-size:.8rem;font-weight:600;margin-bottom:.3rem"></div>
     <div style="position:relative;height:50px;background:#0d0d14;border-radius:6px;overflow:hidden">`;
   result.patterns.forEach((p, pi) => {
     p.occurrences.forEach((o) => {
       const left = o.start * scale;
       const width = Math.max(0.3, (o.end - o.start) * scale);
       const top = (o.track % 4) * 25;
-      html += `<div style="position:absolute;left:${left}%;width:${width}%;top:${top}%;height:23%;background:${PALETTE[pi % PALETTE.length]};opacity:.8;border-radius:2px" title="模式#${pi + 1} T${o.track}"></div>`;
+      html += `<div style="position:absolute;left:${left}%;width:${width}%;top:${top}%;height:23%;background:${PALETTE[pi % PALETTE.length]};opacity:.8;border-radius:2px" title="#${pi + 1} T${o.track}"></div>`;
     });
   });
   html += '</div></div>';

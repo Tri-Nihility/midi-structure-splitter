@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MIDI 压缩拆分器 (COSIATEC优化版)</title>
+<title>MIDI  (COSIATEC)</title>
 <style>
 :root{--bg:#0a0a12;--panel:#11111a;--accent:#00d4aa;--accent2:#ff6b6b;--accent3:#ffd166;--text:#ddd;--text2:#666;--border:#1c1c28;--trunk:#8b5cf6;--trunk2:#a78bfa}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -80,21 +80,21 @@ pre{background:var(--panel);border:1px solid var(--border);border-radius:8px;pad
 <body>
 <header>
 <div>
-<h1>🎼 MIDI 压缩拆分器 (COSIATEC优化版)</h1>
-<div class="subtitle">迭代剥离 + 压缩比优化 + 闵可夫斯基和分解</div>
+<h1> MIDI  (COSIATEC)</h1>
+<div class="subtitle"> +  + </div>
 </div>
 <div style="display:flex;gap:.4rem">
-<button class="btn btn-secondary" onclick="loadDemo()">加载示例</button>
-<button class="btn" id="btnExport" onclick="exportAll()" disabled>导出全部</button>
+<button class="btn btn-secondary" onclick="loadDemo()"></button>
+<button class="btn" id="btnExport" onclick="exportAll()" disabled></button>
 </div>
 </header>
 <div class="container">
 <aside class="sidebar">
 <div class="card">
-<h3>📁 文件</h3>
+<h3> </h3>
 <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
-<div class="icon">📂</div>
-<p>点击或拖拽 MIDI 文件</p>
+<div class="icon"></div>
+<p> MIDI </p>
 <p style="font-size:.7rem;margin-top:.2rem">.mid / .midi</p>
 </div>
 <input type="file" id="fileInput" accept=".mid,.midi" onchange="handleFile(event)">
@@ -103,71 +103,71 @@ pre{background:var(--panel);border:1px solid var(--border);border-radius:8px;pad
 </div>
 
 <div class="card">
-<h3>📊 信息</h3>
+<h3> </h3>
 <div class="info-grid">
-<div class="info-item"><div class="val" id="infoNotes">-</div><div class="lbl">音符</div></div>
-<div class="info-item"><div class="val" id="infoDuration">-</div><div class="lbl">拍</div></div>
+<div class="info-item"><div class="val" id="infoNotes">-</div><div class="lbl"></div></div>
+<div class="info-item"><div class="val" id="infoDuration">-</div><div class="lbl"></div></div>
 </div>
 <div style="margin-top:.5rem">
-<div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--text2);margin-bottom:.15rem"><span>压缩率</span><span id="fitRate">0%</span></div>
+<div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--text2);margin-bottom:.15rem"><span></span><span id="fitRate">0%</span></div>
 <div class="progress-bar" style="display:block;height:6px;border-radius:3px"><div class="progress-fill" id="fitFill" style="width:0%;height:100%"></div></div>
 </div>
 </div>
 
 <div class="card">
-<h3>⚙️ 参数</h3>
-<div class="param-row"><label>最小模式长度</label><input type="number" id="minLen" value="4" min="2" max="64"></div>
-<div class="param-row"><label>最大模式长度</label><input type="number" id="maxLen" value="64" min="4" max="256"></div>
-<div class="param-row"><label>最少重复次数</label><input type="number" id="minOcc" value="2" min="2" max="50"></div>
-<div class="param-row"><label>音高容差</label><input type="number" id="pitchTol" value="0" min="0" max="12"></div>
-<div class="param-row"><label>时间容差</label><input type="number" id="timeTol" value="6" min="0" max="50"></div>
-<div class="param-row"><label>最大模式数</label><input type="number" id="maxPatterns" value="6" min="1" max="20"></div>
-<div class="param-row"><label>最小压缩比</label><input type="number" id="minRatio" value="2.0" min="1" max="20" step="0.5"></div>
-<div class="param-row"><label>检测移调</label><input type="checkbox" id="detectTrans" checked></div>
-<div class="param-row"><label>迭代剥离</label><input type="checkbox" id="iterative" checked></div>
-<button class="btn" style="width:100%;margin-top:.3rem" onclick="analyze()" id="btnAnalyze" disabled>🔍 压缩分析</button>
+<h3> </h3>
+<div class="param-row"><label></label><input type="number" id="minLen" value="4" min="2" max="64"></div>
+<div class="param-row"><label></label><input type="number" id="maxLen" value="64" min="4" max="256"></div>
+<div class="param-row"><label></label><input type="number" id="minOcc" value="2" min="2" max="50"></div>
+<div class="param-row"><label></label><input type="number" id="pitchTol" value="0" min="0" max="12"></div>
+<div class="param-row"><label></label><input type="number" id="timeTol" value="6" min="0" max="50"></div>
+<div class="param-row"><label></label><input type="number" id="maxPatterns" value="6" min="1" max="20"></div>
+<div class="param-row"><label></label><input type="number" id="minRatio" value="2.0" min="1" max="20" step="0.5"></div>
+<div class="param-row"><label></label><input type="checkbox" id="detectTrans" checked></div>
+<div class="param-row"><label></label><input type="checkbox" id="iterative" checked></div>
+<button class="btn" style="width:100%;margin-top:.3rem" onclick="analyze()" id="btnAnalyze" disabled> </button>
 </div>
 
 <div class="card" id="statsCard" style="display:none">
-<h3>📈 统计</h3>
-<div class="stat-row"><span class="stat-label">模式数量</span><span class="stat-value" id="statPatterns">-</span></div>
-<div class="stat-row"><span class="stat-label">模式实例</span><span class="stat-value" id="statInstances">-</span></div>
-<div class="stat-row"><span class="stat-label">主干音符</span><span class="stat-value trunk" id="statTrunk">-</span></div>
-<div class="stat-row"><span class="stat-label">压缩率</span><span class="stat-value" id="statCompress">-</span></div>
-<div class="stat-row"><span class="stat-label">COSIATEC轮次</span><span class="stat-value" id="statRounds">-</span></div>
+<h3> </h3>
+<div class="stat-row"><span class="stat-label"></span><span class="stat-value" id="statPatterns">-</span></div>
+<div class="stat-row"><span class="stat-label"></span><span class="stat-value" id="statInstances">-</span></div>
+<div class="stat-row"><span class="stat-label"></span><span class="stat-value trunk" id="statTrunk">-</span></div>
+<div class="stat-row"><span class="stat-label"></span><span class="stat-value" id="statCompress">-</span></div>
+<div class="stat-row"><span class="stat-label">COSIATEC</span><span class="stat-value" id="statRounds">-</span></div>
 </div>
 </aside>
 
 <main class="main">
 <div class="tabs">
-<button class="tab active" onclick="switchTab('recon')">🏗️ 重建视图</button>
-<button class="tab" onclick="switchTab('patterns')">🔄 模式</button>
-<button class="tab" onclick="switchTab('trunk')">🌳 主干</button>
-<button class="tab" onclick="switchTab('timeline')">📐 时间轴</button>
-<button class="tab" onclick="switchTab('xml')">📄 XML</button>
+<button class="tab active" onclick="switchTab('recon')"> </button>
+<button class="tab" onclick="switchTab('patterns')"> </button>
+<button class="tab" onclick="switchTab('trunk')"> </button>
+<button class="tab" onclick="switchTab('timeline')"> </button>
+<button class="tab" onclick="switchTab('xml')"> XML</button>
 </div>
 
 <div id="panel-recon" class="panel active">
 <div id="reconContainer">
-<div class="empty-state"><div class="icon">🏗️</div><p>重建视图将显示如何用少量模式 + 主干拟合整个乐谱</p></div>
+<div class="empty-state"><div class="icon"></div><p> + </p></div>
 </div>
 </div>
 <div id="panel-patterns" class="panel">
-<div id="patternsContainer"><div class="empty-state"><div class="icon">🔄</div><p>模式库将在此显示</p></div></div>
+<div id="patternsContainer"><div class="empty-state"><div class="icon"></div><p></p></div></div>
 </div>
 <div id="panel-trunk" class="panel">
-<div id="trunkContainer"><div class="empty-state"><div class="icon">🌳</div><p>主干音符（未被模式覆盖的部分）</p></div></div>
+<div id="trunkContainer"><div class="empty-state"><div class="icon"></div><p></p></div></div>
 </div>
 <div id="panel-timeline" class="panel">
-<div id="timelineContainer"><div class="empty-state"><div class="icon">📐</div><p>模式实例在整体时间轴上的排布</p></div></div>
+<div id="timelineContainer"><div class="empty-state"><div class="icon"></div><p></p></div></div>
 </div>
 <div id="panel-xml" class="panel">
 <div class="toolbar">
-<button class="btn btn-secondary" onclick="downloadXML('recon')">下载重建XML</button>
-<button class="btn btn-secondary" onclick="downloadXML('split')">下载拆分XML</button>
-<button class="btn btn-secondary" onclick="copyXML()">复制</button>
+<button class="btn btn-secondary" onclick="downloadXML('recon')">XML</button>
+<button class="btn btn-secondary" onclick="downloadXML('split')">XML</button>
+<button class="btn btn-secondary" onclick="copyXML()"></button>
 </div>
-<pre id="xmlOutput"><code style="color:var(--text2)">请上传 MIDI 文件...</code></pre>
+<pre id="xmlOutput"><code style="color:var(--text2)"> MIDI ...</code></pre>
 </div>
 </main>
 </div>
@@ -650,7 +650,7 @@ function setProg(p) {
 }
 
 function processFile(file) {
-  if (!file.name.match(/\.(mid|midi)$/i)) { showStatus('请选择 MIDI 文件', 'error'); return; }
+  if (!file.name.match(/\.(mid|midi)$/i)) { showStatus(' MIDI ', 'error'); return; }
   currentFile = file.name.replace(/\.(mid|midi)$/i, '');
   setProg(20);
   const r = new FileReader();
@@ -667,8 +667,8 @@ function processFile(file) {
 	  setProg(100);
 	  document.getElementById('btnAnalyze').disabled = false;
 	  document.getElementById('btnExport').disabled = false;
-	  showStatus(`解析成功: ${currentData.notes.length} 音符`, 'success');
-	} catch (err) { setProg(0); showStatus('解析失败: ' + err.message, 'error'); console.error(err); }
+	  showStatus(`: ${currentData.notes.length} `, 'success');
+	} catch (err) { setProg(0); showStatus(': ' + err.message, 'error'); console.error(err); }
   };
   r.readAsArrayBuffer(file);
 }
@@ -678,7 +678,7 @@ function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>
 function analyze() {
   if (!currentData) return;
   const btn = document.getElementById('btnAnalyze');
-  btn.disabled = true; btn.textContent = 'COSIATEC分析中...';
+  btn.disabled = true; btn.textContent = 'COSIATEC...';
   setProg(10);
 
   setTimeout(() => {
@@ -716,13 +716,13 @@ function analyze() {
 	  renderXML(currentData, currentResult);
 
 	  setProg(100);
-	  showStatus(`COSIATEC完成: ${currentResult.patterns.length} 模式, 压缩 ${cov}%`, 'success');
+	  showStatus(`COSIATEC: ${currentResult.patterns.length} ,  ${cov}%`, 'success');
 	} catch (err) {
-	  showStatus('分析失败: ' + err.message, 'error');
+	  showStatus(': ' + err.message, 'error');
 	  console.error(err);
 	} finally {
 	  btn.disabled = false;
-	  btn.textContent = '🔍 压缩分析';
+	  btn.textContent = ' ';
 	}
   }, 100);
 }
@@ -731,7 +731,7 @@ function analyze() {
 function renderReconstruction(data, result) {
   const c = document.getElementById('reconContainer');
   if (!result.patterns.length && !result.trunk.length) {
-	c.innerHTML = '<div class="empty-state"><div class="icon">🏗️</div><p>无重建数据</p></div>';
+	c.innerHTML = '<div class="empty-state"><div class="icon"></div><p></p></div>';
 	return;
   }
   const maxT = Math.max(...data.notes.map(n => n.end), 1);
@@ -741,11 +741,11 @@ function renderReconstruction(data, result) {
   const pRange = maxP - minP || 1;
 
   let h = '<div class="recon-legend">';
-  h += `<div class="recon-legend-item"><div class="recon-dot" style="background:var(--trunk)"></div>主干 (${result.trunk.length})</div>`;
+  h += `<div class="recon-legend-item"><div class="recon-dot" style="background:var(--trunk)"></div> (${result.trunk.length})</div>`;
   result.patterns.forEach((p, i) => {
-	h += `<div class="recon-legend-item"><div class="recon-dot" style="background:${PALETTE[i % PALETTE.length]}"></div>模式 #${i+1} (${p.occurrences.length}次)</div>`;
+	h += `<div class="recon-legend-item"><div class="recon-dot" style="background:${PALETTE[i % PALETTE.length]}"></div> #${i+1} (${p.occurrences.length})</div>`;
   });
-  h += `<div class="recon-legend-item" style="margin-left:auto"><span style="color:var(--text2)">压缩 ${result.compressionRate.toFixed(1)}%</span></div>`;
+  h += `<div class="recon-legend-item" style="margin-left:auto"><span style="color:var(--text2)"> ${result.compressionRate.toFixed(1)}%</span></div>`;
   h += '</div>';
 
   h += '<div class="recon-canvas"><div class="recon-inner">';
@@ -769,15 +769,15 @@ function renderReconstruction(data, result) {
 	const patId = coveredBy.get(key);
 	const color = patId !== undefined ? PALETTE[patId % PALETTE.length] : 'var(--trunk)';
 	const isPattern = patId !== undefined;
-	h += `<div class="recon-note ${isPattern ? '' : 'trunk'}" style="left:${left}%;width:${width}%;bottom:${bottom}%;height:5px;background:${color}" title="${noteN(n.pitch)} T${n.track} @${n.start} ${isPattern ? '模式#' + (patId+1) : '主干'}"></div>`;
+	h += `<div class="recon-note ${isPattern ? '' : 'trunk'}" style="left:${left}%;width:${width}%;bottom:${bottom}%;height:5px;background:${color}" title="${noteN(n.pitch)} T${n.track} @${n.start} ${isPattern ? '#' + (patId+1) : ''}"></div>`;
   });
   h += '</div></div>';
 
   h += `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin-top:.5rem">`;
-  h += `<div class="info-item"><div class="val">${result.patterns.length}</div><div class="lbl">模式数</div></div>`;
-  h += `<div class="info-item"><div class="val">${result.instanceCount}</div><div class="lbl">实例数</div></div>`;
-  h += `<div class="info-item"><div class="val" style="color:var(--trunk)">${result.trunk.length}</div><div class="lbl">主干音符</div></div>`;
-  h += `<div class="info-item"><div class="val">${result.compressionRate.toFixed(1)}%</div><div class="lbl">压缩率</div></div>`;
+  h += `<div class="info-item"><div class="val">${result.patterns.length}</div><div class="lbl"></div></div>`;
+  h += `<div class="info-item"><div class="val">${result.instanceCount}</div><div class="lbl"></div></div>`;
+  h += `<div class="info-item"><div class="val" style="color:var(--trunk)">${result.trunk.length}</div><div class="lbl"></div></div>`;
+  h += `<div class="info-item"><div class="val">${result.compressionRate.toFixed(1)}%</div><div class="lbl"></div></div>`;
   h += `</div>`;
 
   c.innerHTML = h;
@@ -786,7 +786,7 @@ function renderReconstruction(data, result) {
 function renderPatterns(result) {
   const c = document.getElementById('patternsContainer');
   if (!result.patterns.length) {
-	c.innerHTML = '<div class="empty-state"><div class="icon">🔄</div><p>未检测到重复模式</p></div>';
+	c.innerHTML = '<div class="empty-state"><div class="icon"></div><p></p></div>';
 	return;
   }
   let h = '';
@@ -798,11 +798,11 @@ function renderPatterns(result) {
 	const range = maxRP - minRP || 1;
 	h += `<div class="pattern-card" style="border-left:3px solid ${color}">
 	  <div class="pattern-card-header">
-		<span class="pattern-card-title" style="color:${color}">模式 #${i+1} (COSIATEC轮次 ${p.round})</span>
+		<span class="pattern-card-title" style="color:${color}"> #${i+1} (COSIATEC ${p.round})</span>
 		<span class="pattern-card-meta">
-		  <span>${p.notes.length} 音符模板</span>
-		  <span>${p.occurrences.length} 实例</span>
-		  <span>压缩比 ${p.compressionRatio.toFixed(2)}</span>
+		  <span>${p.notes.length} </span>
+		  <span>${p.occurrences.length} </span>
+		  <span> ${p.compressionRatio.toFixed(2)}</span>
 		</span>
 	  </div>
 	  <div class="pattern-visual">
@@ -811,7 +811,7 @@ function renderPatterns(result) {
 		  return `<div class="pattern-bar" style="height:${h}px;background:${color}"></div>`;
 		}).join('')}
 	  </div>
-	  <div style="font-size:.65rem;color:var(--text2);margin:.2rem 0">实例排布 (delay=起始偏移, trans=移调):</div>
+	  <div style="font-size:.65rem;color:var(--text2);margin:.2rem 0"> (delay=, trans=):</div>
 	  <div>
 		${p.occurrences.map((o, oi) => `<span class="occ-chip" style="background:${color}22;color:${color};border:1px solid ${color}44">#${oi+1} T${o.track} d=${o.delay} t=${o.transposition}</span>`).join('')}
 	  </div>
@@ -823,7 +823,7 @@ function renderPatterns(result) {
 function renderTrunk(result) {
   const c = document.getElementById('trunkContainer');
   if (!result.trunk.length) {
-	c.innerHTML = '<div class="empty-state"><div class="icon">🌳</div><p>所有音符都被模式覆盖，无主干</p></div>';
+	c.innerHTML = '<div class="empty-state"><div class="icon"></div><p></p></div>';
 	return;
   }
   const maxT = Math.max(...result.trunk.map(n => n.end), 1);
@@ -832,7 +832,7 @@ function renderTrunk(result) {
   const maxP = Math.max(...result.trunk.map(n => n.pitch));
   const pRange = maxP - minP || 1;
 
-  let h = `<div style="font-size:.8rem;color:var(--text2);margin-bottom:.4rem">${result.trunk.length} 个独立音符 (${(result.trunk.length / result.totalNotes * 100).toFixed(1)}%)</div>`;
+  let h = `<div style="font-size:.8rem;color:var(--text2);margin-bottom:.4rem">${result.trunk.length}  (${(result.trunk.length / result.totalNotes * 100).toFixed(1)}%)</div>`;
   h += '<div class="trunk-timeline">';
   result.trunk.forEach(n => {
 	const left = n.start * sc;
@@ -846,7 +846,7 @@ function renderTrunk(result) {
   result.trunk.forEach(n => { if (!byT[n.track]) byT[n.track] = []; byT[n.track].push(n); });
   h += '<div style="margin-top:.6rem">';
   Object.entries(byT).forEach(([tid, arr]) => {
-	h += `<div style="font-size:.75rem;color:var(--text2);margin:.3rem 0">轨道 ${tid}: ${arr.length} 音符</div>`;
+	h += `<div style="font-size:.75rem;color:var(--text2);margin:.3rem 0"> ${tid}: ${arr.length} </div>`;
 	h += `<div style="display:flex;flex-wrap:wrap;gap:.15rem">`;
 	arr.forEach(n => {
 	  h += `<span style="font-size:.65rem;background:var(--panel);padding:.1rem .3rem;border-radius:3px;color:var(--trunk2)">${noteN(n.pitch)}@${Math.round(n.start / (currentData?.ppq || 96))}</span>`;
@@ -866,7 +866,7 @@ function renderTimeline(data, result) {
   const tracks = [...new Set(data.notes.map(n => n.track))].sort((a, b) => a - b);
   tracks.forEach(tid => {
 	h += `<div class="card" style="margin-bottom:.5rem">
-	  <div style="font-size:.8rem;font-weight:600;margin-bottom:.3rem">轨道 ${tid}</div>
+	  <div style="font-size:.8rem;font-weight:600;margin-bottom:.3rem"> ${tid}</div>
 	  <div style="position:relative;height:40px;background:#0d0d14;border-radius:6px;overflow:hidden">`;
 
 	const trunkNotes = result.trunk.filter(n => n.track === tid);
@@ -876,11 +876,11 @@ function renderTimeline(data, result) {
 	  if (n.start > lastEnd) {
 		const left = lastEnd * sc;
 		const width = (n.start - lastEnd) * sc;
-		h += `<div style="position:absolute;left:${left}%;width:${width}%;top:0;bottom:0;background:repeating-linear-gradient(45deg,#1e1e30,#1e1e30 3px,#151520 3px,#151520 6px);opacity:.6" title="间隙"></div>`;
+		h += `<div style="position:absolute;left:${left}%;width:${width}%;top:0;bottom:0;background:repeating-linear-gradient(45deg,#1e1e30,#1e1e30 3px,#151520 3px,#151520 6px);opacity:.6" title=""></div>`;
 	  }
 	  const left = n.start * sc;
 	  const width = Math.max(0.3, n.dur * sc);
-	  h += `<div style="position:absolute;left:${left}%;width:${width}%;top:0;bottom:0;background:var(--trunk);opacity:.7" title="主干"></div>`;
+	  h += `<div style="position:absolute;left:${left}%;width:${width}%;top:0;bottom:0;background:var(--trunk);opacity:.7" title=""></div>`;
 	  lastEnd = Math.max(lastEnd, n.end);
 	});
 
@@ -888,21 +888,21 @@ function renderTimeline(data, result) {
 	  p.occurrences.filter(o => o.track === tid).forEach(o => {
 		const left = o.start * sc;
 		const width = Math.max(0.3, (o.end - o.start) * sc);
-		h += `<div style="position:absolute;left:${left}%;width:${width}%;top:0;bottom:0;background:${PALETTE[pi % PALETTE.length]};opacity:.75;border:1px solid rgba(255,255,255,.1);border-radius:2px" title="模式#${pi+1} 拍${Math.round(o.start/data.ppq)}-${Math.round(o.end/data.ppq)}"></div>`;
+		h += `<div style="position:absolute;left:${left}%;width:${width}%;top:0;bottom:0;background:${PALETTE[pi % PALETTE.length]};opacity:.75;border:1px solid rgba(255,255,255,.1);border-radius:2px" title="#${pi+1} ${Math.round(o.start/data.ppq)}-${Math.round(o.end/data.ppq)}"></div>`;
 	  });
 	});
 	h += `</div></div>`;
   });
 
   h += `<div class="card">
-	<div style="font-size:.8rem;font-weight:600;margin-bottom:.3rem">整体时间轴</div>
+	<div style="font-size:.8rem;font-weight:600;margin-bottom:.3rem"></div>
 	<div style="position:relative;height:50px;background:#0d0d14;border-radius:6px;overflow:hidden">`;
   result.patterns.forEach((p, pi) => {
 	p.occurrences.forEach(o => {
 	  const left = o.start * sc;
 	  const width = Math.max(0.3, (o.end - o.start) * sc);
 	  const top = (o.track % 4) * 25;
-	  h += `<div style="position:absolute;left:${left}%;width:${width}%;top:${top}%;height:23%;background:${PALETTE[pi % PALETTE.length]};opacity:.8;border-radius:2px" title="模式#${pi+1} T${o.track}"></div>`;
+	  h += `<div style="position:absolute;left:${left}%;width:${width}%;top:${top}%;height:23%;background:${PALETTE[pi % PALETTE.length]};opacity:.8;border-radius:2px" title="#${pi+1} T${o.track}"></div>`;
 	});
   });
   h += `</div></div>`;
@@ -935,7 +935,7 @@ function exportAll() {
 }
 function copyXML() {
   if (!currentData || !currentResult) return;
-  navigator.clipboard.writeText(generateXML(currentData, currentResult, 'recon')).then(() => showStatus('已复制', 'success'));
+  navigator.clipboard.writeText(generateXML(currentData, currentResult, 'recon')).then(() => showStatus('', 'success'));
 }
 function dl(content, filename, mime) {
   const blob = new Blob([content], { type: mime });

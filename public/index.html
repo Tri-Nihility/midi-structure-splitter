@@ -12,7 +12,7 @@
 <!-- ======== Header ======== -->
 <header>
   <div>
-    <h1>🎼 MIDI 压缩拆分器 (COSIATEC优化版)</h1>
+    <h1>MIDI 压缩拆分器 (COSIATEC优化版)</h1>
     <div class="subtitle">迭代剥离 + 压缩比优化 + 闵可夫斯基和分解</div>
   </div>
   <div style="display:flex;gap:.4rem">
@@ -29,9 +29,9 @@
 
     <!-- File Upload -->
     <div class="card">
-      <h3>📁 文件</h3>
+      <h3>文件</h3>
       <div class="dropzone" id="dropzone">
-        <div class="icon">📂</div>
+        <div class="icon">[+]</div>
         <p>点击或拖拽 MIDI 文件</p>
         <p style="font-size:.7rem;margin-top:.2rem">.mid / .midi</p>
       </div>
@@ -44,7 +44,7 @@
 
     <!-- Info -->
     <div class="card">
-      <h3>📊 信息</h3>
+      <h3>信息</h3>
       <div class="info-grid">
         <div class="info-item">
           <div class="val" id="infoNotes">-</div>
@@ -68,7 +68,7 @@
 
     <!-- Parameters -->
     <div class="card">
-      <h3>⚙️ 参数</h3>
+      <h3>参数</h3>
       <div class="param-row">
         <label>最小模式长度</label>
         <input type="number" id="minLen" value="4" min="2" max="64">
@@ -106,13 +106,13 @@
         <input type="checkbox" id="iterative" checked>
       </div>
       <button class="btn" style="width:100%;margin-top:.3rem" id="btnAnalyze" disabled>
-        🔍 压缩分析
+        压缩分析
       </button>
     </div>
 
     <!-- Statistics -->
     <div class="card" id="statsCard" style="display:none">
-      <h3>📈 统计</h3>
+      <h3>统计</h3>
       <div class="stat-row">
         <span class="stat-label">模式数量</span>
         <span class="stat-value" id="statPatterns">-</span>
@@ -142,18 +142,18 @@
 
     <!-- Tabs -->
     <div class="tabs">
-      <button class="tab active" data-panel="recon">🏗️ 重建视图</button>
-      <button class="tab" data-panel="patterns">🔄 模式</button>
-      <button class="tab" data-panel="trunk">🌳 主干</button>
-      <button class="tab" data-panel="timeline">📐 时间轴</button>
-      <button class="tab" data-panel="xml">📄 XML</button>
+      <button class="tab active" data-panel="recon">重建视图</button>
+      <button class="tab" data-panel="patterns">模式</button>
+      <button class="tab" data-panel="trunk">主干</button>
+      <button class="tab" data-panel="timeline">时间轴</button>
+      <button class="tab" data-panel="xml">XML</button>
     </div>
 
     <!-- Panels -->
     <div id="panel-recon" class="panel active">
       <div id="reconContainer">
         <div class="empty-state">
-          <div class="icon">🏗️</div>
+          <div class="icon">[=]</div>
           <p>重建视图将显示如何用少量模式 + 主干拟合整个乐谱</p>
         </div>
       </div>
@@ -162,7 +162,7 @@
     <div id="panel-patterns" class="panel">
       <div id="patternsContainer">
         <div class="empty-state">
-          <div class="icon">🔄</div>
+          <div class="icon">[~]</div>
           <p>模式库将在此显示</p>
         </div>
       </div>
@@ -171,7 +171,7 @@
     <div id="panel-trunk" class="panel">
       <div id="trunkContainer">
         <div class="empty-state">
-          <div class="icon">🌳</div>
+          <div class="icon">[#]</div>
           <p>主干音符（未被模式覆盖的部分）</p>
         </div>
       </div>
@@ -180,7 +180,7 @@
     <div id="panel-timeline" class="panel">
       <div id="timelineContainer">
         <div class="empty-state">
-          <div class="icon">📐</div>
+          <div class="icon">[-]</div>
           <p>模式实例在整体时间轴上的排布</p>
         </div>
       </div>

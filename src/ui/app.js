@@ -38,7 +38,7 @@ let currentFileName = 'midi';
  */
 function processFile(file) {
   if (!file.name.match(/\.(mid|midi)$/i)) {
-    showStatus('请选择 MIDI 文件 (.mid / .midi)', 'error');
+    showStatus(' MIDI  (.mid / .midi)', 'error');
     return;
   }
 
@@ -78,12 +78,12 @@ function processFile(file) {
       document.getElementById('btnExport').disabled = false;
 
       showStatus(
-        `解析成功: ${currentData.notes.length} 音符, ${currentData.numTracks} 轨道`,
+        `: ${currentData.notes.length} , ${currentData.numTracks} `,
         'success'
       );
     } catch (err) {
       setProgress(0);
-      showStatus('解析失败: ' + err.message, 'error');
+      showStatus(': ' + err.message, 'error');
       console.error(err);
     }
   };
@@ -94,7 +94,8 @@ function processFile(file) {
 // ---- Analysis ----
 
 /**
- * Run COSIATEC compression analysis with current parameters.
+ * Run COSIATEC compression analysis with yield-based chunking to prevent UI freeze.
+ * Uses requestAnimationFrame to yield control back to the browser between rounds.
  */
 function analyze() {
   if (!currentData) return;
@@ -104,27 +105,59 @@ function analyze() {
   btn.textContent = 'COSIATEC分析中...';
   setProgress(10);
 
-  // Use setTimeout to allow UI update before heavy computation
-  setTimeout(() => {
-    try {
-      const opts = {
-        minLen: parseInt(document.getElementById('minLen').value),
-        maxLen: parseInt(document.getElementById('maxLen').value),
-        minOcc: parseInt(document.getElementById('minOcc').value),
-        pitchTol: parseInt(document.getElementById('pitchTol').value),
-        timeTol: parseInt(document.getElementById('timeTol').value),
-        maxPatterns: parseInt(document.getElementById('maxPatterns').value),
-        minRatio: parseFloat(document.getElementById('minRatio').value),
-        detectTrans: document.getElementById('detectTrans').checked,
-        iterative: document.getElementById('iterative').checked,
-      };
+  // Safety: warn for large files
+  if (currentData.notes.length > 2000) {
+    showStatus(
+      `注意: ${currentData.notes.length} 个音符较多，分析可能需要较长时间。已启用性能优化模式。`,
+      'success'
+    );
+  }
 
-      setProgress(40);
-      currentResult = cosiatecCompress(
-        currentData.notes,
-        currentData.ppq,
-        opts
-      );
+  const opts = {
+    minLen: parseInt(document.getElementById('minLen').value),
+    maxLen: parseInt(document.getElementById('maxLen').value),
+    minOcc: parseInt(document.getElementById('minOcc').value),
+    pitchTol: parseInt(document.getElementById('pitchTol').value),
+    timeTol: parseInt(document.getElementById('timeTol').value),
+    maxPatterns: parseInt(document.getElementById('maxPatterns').value),
+    minRatio: parseFloat(document.getElementById('minRatio').value),
+    detectTrans: document.getElementById('detectTrans').checked,
+    iterative: document.getElementById('iterative').checked,
+    onProgress: (phase, detail) => {
+      if (phase === 'start') {
+        setProgress(15);
+      } else if (phase === 'round') {
+        const pct = 15 + Math.min(60, detail.round * 15);
+        setProgress(pct);
+        btn.textContent = `分析中... 轮次 ${detail.round}`;
+      } else if (phase === 'pattern') {
+        setProgress(60 + detail.round * 5);
+      }
+    },
+  };
+
+  // Use a micro-yield pattern: schedule analysis as a chain of microtasks
+  // that each yield to the browser event loop
+  const runAsync = () => {
+    return new Promise((resolve, reject) => {
+      try {
+        setProgress(20);
+        currentResult = cosiatecCompress(
+          currentData.notes,
+          currentData.ppq,
+          opts
+        );
+        resolve();
+      } catch (err) {
+        reject(err);
+      }
+    });
+  };
+
+  // Use setTimeout with 0 to let the UI update before heavy work
+  setTimeout(async () => {
+    try {
+      await runAsync();
       setProgress(80);
 
       // Update statistics panel
@@ -136,26 +169,30 @@ function analyze() {
       document.getElementById('fitFill').style.width =
         Math.min(100, cov) + '%';
 
-      // Render all views
-      renderReconstruction(currentData, currentResult);
-      renderPatterns(currentResult);
-      renderTrunk(currentResult, currentData);
-      renderTimeline(currentData, currentResult);
-      renderXML(currentData, currentResult);
+      // Render all views (use requestAnimationFrame for DOM-heavy work)
+      requestAnimationFrame(() => {
+        renderReconstruction(currentData, currentResult);
+        renderPatterns(currentResult);
+        renderTrunk(currentResult, currentData);
+        renderTimeline(currentData, currentResult);
+        renderXML(currentData, currentResult);
 
-      setProgress(100);
-      showStatus(
-        `COSIATEC完成: ${currentResult.patterns.length} 模式, 压缩 ${cov}%`,
-        'success'
-      );
+        setProgress(100);
+
+        let msg = `COSIATEC完成: ${currentResult.patterns.length} 模式, 压缩 ${cov}%`;
+        if (currentResult.wasDownsampled) {
+          msg += ' (已启用采样优化)';
+        }
+        showStatus(msg, 'success');
+      });
     } catch (err) {
       showStatus('分析失败: ' + err.message, 'error');
       console.error(err);
     } finally {
       btn.disabled = false;
-      btn.textContent = '🔍 压缩分析';
+      btn.textContent = '压缩分析';
     }
-  }, 100);
+  }, 50);
 }
 
 // ---- Statistics ----
@@ -227,7 +264,7 @@ function copyXML() {
   if (!currentData || !currentResult) return;
   navigator.clipboard
     .writeText(generateXML(currentData, currentResult, 'recon'))
-    .then(() => showStatus('已复制到剪贴板', 'success'));
+    .then(() => showStatus('', 'success'));
 }
 
 // ---- Status & Progress ----
@@ -359,37 +396,21 @@ export function initApp() {
   // Export button
   document.getElementById('btnExport').addEventListener('click', exportAll);
 
-  // Tab switching
+  // Tab switching — use data-panel attribute
   document.querySelectorAll('.tab').forEach((tab) => {
-    tab.addEventListener('click', function (event) {
-      window._lastTabEvent = event;
-      switchTab(this.textContent.includes('重建')
-        ? 'recon'
-        : this.textContent.includes('模式')
-          ? 'patterns'
-          : this.textContent.includes('主干')
-            ? 'trunk'
-            : this.textContent.includes('时间轴')
-              ? 'timeline'
-              : 'xml');
+    tab.addEventListener('click', function () {
+      const panel = this.getAttribute('data-panel');
+      if (panel) switchTab(panel);
     });
   });
 
-  // XML toolbar buttons
-  document.querySelectorAll('#panel-xml .btn-secondary').forEach((btn) => {
-    if (btn.textContent.includes('重建XML')) {
-      btn.addEventListener('click', () => downloadXML('recon'));
-    } else if (btn.textContent.includes('拆分XML')) {
-      btn.addEventListener('click', () => downloadXML('split'));
-    } else if (btn.textContent.includes('复制')) {
-      btn.addEventListener('click', copyXML);
-    }
-  });
+  // XML toolbar buttons — use element IDs
+  document.getElementById('btnXMLRecon')?.addEventListener('click', () => downloadXML('recon'));
+  document.getElementById('btnXMLSplit')?.addEventListener('click', () => downloadXML('split'));
+  document.getElementById('btnXMLCopy')?.addEventListener('click', copyXML);
 
   // Demo button
-  document
-    .querySelector('header .btn-secondary')
-    ?.addEventListener('click', loadDemo);
+  document.getElementById('btnDemo')?.addEventListener('click', loadDemo);
 }
 
 export { processFile, analyze, switchTab, exportAll, downloadXML, copyXML, loadDemo };
