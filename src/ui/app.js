@@ -1,8 +1,8 @@
 /**
  * Main Application Controller for MIDI Structure Splitter
  *
- * Coordinates file loading, COSIATEC analysis, UI rendering,
- * and XML export functionality.
+ * Coordinates file loading, COSIATEC analysis, auto-optimization,
+ * UI rendering, and XML export functionality.
  *
  * @module app
  */
@@ -30,6 +30,9 @@ let currentResult = null;
 /** @type {string} Base filename for exports */
 let currentFileName = 'midi';
 
+/** Abort controller for cancellation */
+let abortController = null;
+
 // ---- File Handling ----
 
 /**
@@ -38,7 +41,7 @@ let currentFileName = 'midi';
  */
 function processFile(file) {
   if (!file.name.match(/\.(mid|midi)$/i)) {
-    showStatus(' MIDI  (.mid / .midi)', 'error');
+    showStatus('请选择 MIDI 文件 (.mid / .midi)', 'error');
     return;
   }
 
@@ -75,15 +78,16 @@ function processFile(file) {
       setProgress(100);
 
       document.getElementById('btnAnalyze').disabled = false;
+      document.getElementById('btnAutoOptimize').disabled = false;
       document.getElementById('btnExport').disabled = false;
 
       showStatus(
-        `: ${currentData.notes.length} , ${currentData.numTracks} `,
+        `解析成功: ${currentData.notes.length} 音符, ${currentData.numTracks} 轨道`,
         'success'
       );
     } catch (err) {
       setProgress(0);
-      showStatus(': ' + err.message, 'error');
+      showStatus('解析失败: ' + err.message, 'error');
       console.error(err);
     }
   };
@@ -195,7 +199,269 @@ function analyze() {
   }, 50);
 }
 
-// ---- Statistics ----
+// ---- Auto-Optimization ----
+
+/**
+ * Parameter grid for auto-optimization search.
+ * Each entry is [paramKey, candidateValues].
+ */
+const PARAM_GRID = {
+  minLen:       [3, 4, 5, 6, 8],
+  maxLen:       [12, 16, 24, 32, 48, 64],
+  minOcc:       [2, 3, 4],
+  pitchTol:     [0, 1, 2],
+  maxPatterns:  [3, 4, 5, 6, 8],
+  minRatio:     [1.5, 2.0, 2.5],
+};
+
+/**
+ * Generate all combinations of parameter grid values.
+ * Uses a pruned search: evaluates coarse grid first, then refines
+ * around the best region.
+ */
+function* generateParamCombos(coarse) {
+  const keys = Object.keys(PARAM_GRID);
+  const values = keys.map(k => PARAM_GRID[k]);
+
+  // For coarse mode, use every-other value
+  const step = coarse ? 2 : 1;
+
+  function* cartesian(idx, current) {
+    if (idx === keys.length) {
+      yield { ...current };
+      return;
+    }
+    const vals = values[idx];
+    for (let i = 0; i < vals.length; i += step) {
+      current[keys[idx]] = vals[i];
+      yield* cartesian(idx + 1, current);
+    }
+  }
+
+  yield* cartesian(0, {});
+}
+
+/**
+ * Count total combinations for progress display.
+ */
+function countCombos(coarse) {
+  const step = coarse ? 2 : 1;
+  let total = 1;
+  for (const vals of Object.values(PARAM_GRID)) {
+    total *= Math.ceil(vals.length / step);
+  }
+  return total;
+}
+
+/**
+ * Run a single COSIATEC analysis with given params, return compression rate.
+ */
+function runSingle(params) {
+  const opts = {
+    minLen: params.minLen,
+    maxLen: params.maxLen,
+    minOcc: params.minOcc,
+    pitchTol: params.pitchTol,
+    timeTol: parseInt(document.getElementById('timeTol').value),
+    maxPatterns: params.maxPatterns,
+    minRatio: params.minRatio,
+    detectTrans: document.getElementById('detectTrans').checked,
+    iterative: document.getElementById('iterative').checked,
+  };
+  const result = cosiatecCompress(currentData.notes, currentData.ppq, opts);
+  return {
+    compressionRate: result.compressionRate,
+    patterns: result.patterns.length,
+    trunk: result.trunk.length,
+    rounds: result.rounds,
+    params: { ...params },
+  };
+}
+
+/**
+ * Auto-optimize: search parameter grid for best compression.
+ * Two-phase: coarse scan -> fine scan around best region.
+ */
+async function autoOptimize() {
+  if (!currentData) {
+    showStatus('请先上传 MIDI 文件', 'error');
+    return;
+  }
+
+  abortController = new AbortController();
+  const signal = abortController.signal;
+
+  const btnAnalyze = document.getElementById('btnAnalyze');
+  const btnAuto = document.getElementById('btnAutoOptimize');
+  const btnCancel = document.getElementById('btnCancel');
+  btnAnalyze.disabled = true;
+  btnAuto.disabled = true;
+  btnAuto.textContent = '优化中...';
+  btnCancel.style.display = 'block';
+
+  const totalCoarse = countCombos(true);
+  const totalFine = countCombos(false);
+  const totalCombos = totalCoarse + totalFine;
+
+  showStatus(`开始自动优化: 粗扫 ${totalCoarse} + 精扫 ${totalFine} = ${totalCombos} 组合`, 'success');
+
+  let bestResult = null;
+  let tested = 0;
+
+  try {
+    // ---- Phase 1: Coarse scan ----
+    for (const params of generateParamCombos(true)) {
+      if (signal.aborted) throw new Error('已取消');
+
+      const result = runSingle(params);
+      tested++;
+
+      if (!bestResult || result.compressionRate > bestResult.compressionRate) {
+        bestResult = result;
+      }
+
+      // Update progress
+      const pct = Math.round((tested / totalCombos) * 100);
+      setProgress(pct);
+      btnAuto.textContent = `粗扫 ${tested}/${totalCoarse}`;
+
+      // Yield to UI every few iterations
+      if (tested % 10 === 0) {
+        await new Promise(r => setTimeout(r, 0));
+      }
+    }
+
+    // ---- Phase 2: Fine scan around best coarse params ----
+    // Build a narrower grid around the best values found so far
+    const fineGrid = buildFineGrid(bestResult.params);
+
+    for (const params of fineGrid) {
+      if (signal.aborted) throw new Error('已取消');
+
+      const result = runSingle(params);
+      tested++;
+
+      if (result.compressionRate > bestResult.compressionRate) {
+        bestResult = result;
+      }
+
+      const pct = Math.round((tested / totalCombos) * 100);
+      setProgress(pct);
+      btnAuto.textContent = `精扫 ${tested - totalCoarse}/${totalFine}`;
+
+      if (tested % 10 === 0) {
+        await new Promise(r => setTimeout(r, 0));
+      }
+    }
+
+    // ---- Apply best result ----
+    currentResult = cosiatecCompress(
+      currentData.notes,
+      currentData.ppq,
+      {
+        minLen: bestResult.params.minLen,
+        maxLen: bestResult.params.maxLen,
+        minOcc: bestResult.params.minOcc,
+        pitchTol: bestResult.params.pitchTol,
+        timeTol: parseInt(document.getElementById('timeTol').value),
+        maxPatterns: bestResult.params.maxPatterns,
+        minRatio: bestResult.params.minRatio,
+        detectTrans: document.getElementById('detectTrans').checked,
+        iterative: document.getElementById('iterative').checked,
+      }
+    );
+
+    // Update parameter inputs to best values
+    document.getElementById('minLen').value = bestResult.params.minLen;
+    document.getElementById('maxLen').value = bestResult.params.maxLen;
+    document.getElementById('minOcc').value = bestResult.params.minOcc;
+    document.getElementById('pitchTol').value = bestResult.params.pitchTol;
+    document.getElementById('maxPatterns').value = bestResult.params.maxPatterns;
+    document.getElementById('minRatio').value = bestResult.params.minRatio;
+
+    // Render
+    updateStatistics(currentResult);
+    const cov = Math.round(currentResult.compressionRate);
+    document.getElementById('fitRate').textContent = cov + '%';
+    document.getElementById('fitFill').style.width = Math.min(100, cov) + '%';
+
+    requestAnimationFrame(() => {
+      renderReconstruction(currentData, currentResult);
+      renderPatterns(currentResult);
+      renderTrunk(currentResult, currentData);
+      renderTimeline(currentData, currentResult);
+      renderXML(currentData, currentResult);
+    });
+
+    setProgress(100);
+    showStatus(
+      `优化完成: 测试 ${tested} 组合, 最佳压缩 ${cov}% (minLen=${bestResult.params.minLen} maxLen=${bestResult.params.maxLen} minOcc=${bestResult.params.minOcc} pitchTol=${bestResult.params.pitchTol} maxPat=${bestResult.params.maxPatterns} minRatio=${bestResult.params.minRatio})`,
+      'success'
+    );
+
+  } catch (err) {
+    if (err.message === '已取消') {
+      showStatus('优化已取消', 'error');
+    } else {
+      showStatus('优化失败: ' + err.message, 'error');
+      console.error(err);
+    }
+  } finally {
+    btnAnalyze.disabled = false;
+    btnAuto.disabled = false;
+    btnAuto.textContent = '自动优化';
+    btnCancel.style.display = 'none';
+    abortController = null;
+  }
+}
+
+/**
+ * Build a fine-grained parameter grid around the best coarse result.
+ * Narrows each parameter to neighbors of the best value.
+ */
+function buildFineGrid(bestParams) {
+  const fine = {};
+  for (const [key, allVals] of Object.entries(PARAM_GRID)) {
+    const bestVal = bestParams[key];
+    const idx = allVals.indexOf(bestVal);
+    if (idx === -1) {
+      fine[key] = allVals;
+    } else {
+      // Take best value and its immediate neighbors
+      const neighbors = [];
+      if (idx > 0) neighbors.push(allVals[idx - 1]);
+      neighbors.push(allVals[idx]);
+      if (idx < allVals.length - 1) neighbors.push(allVals[idx + 1]);
+      fine[key] = neighbors;
+    }
+  }
+
+  // Generate all combos from the fine grid
+  const keys = Object.keys(fine);
+  const values = keys.map(k => fine[k]);
+
+  function* cartesian(idx, current) {
+    if (idx === keys.length) {
+      yield { ...current };
+      return;
+    }
+    for (const v of values[idx]) {
+      current[keys[idx]] = v;
+      yield* cartesian(idx + 1, current);
+    }
+  }
+
+  return cartesian(0, {});
+}
+
+/**
+ * Cancel any running auto-optimization.
+ */
+function cancelOptimize() {
+  if (abortController) {
+    abortController.abort();
+  }
+}
 
 /**
  * Update the statistics panel with compression results.
@@ -264,7 +530,7 @@ function copyXML() {
   if (!currentData || !currentResult) return;
   navigator.clipboard
     .writeText(generateXML(currentData, currentResult, 'recon'))
-    .then(() => showStatus('', 'success'));
+    .then(() => showStatus('已复制到剪贴板', 'success'));
 }
 
 // ---- Status & Progress ----
@@ -392,6 +658,12 @@ export function initApp() {
 
   // Analyze button
   document.getElementById('btnAnalyze').addEventListener('click', analyze);
+
+  // Auto-optimize button
+  document.getElementById('btnAutoOptimize')?.addEventListener('click', autoOptimize);
+
+  // Cancel button
+  document.getElementById('btnCancel')?.addEventListener('click', cancelOptimize);
 
   // Export button
   document.getElementById('btnExport').addEventListener('click', exportAll);
