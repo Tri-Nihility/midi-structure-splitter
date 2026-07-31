@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MIDI 压缩拆分器 (COSIATEC优化版)</title>
+<style>
+:root{--bg:#0a0a12;--panel:#11111a;--accent:#00d4aa;--accent2:#ff6b6b;--accent3:#ffd166;--text:#ddd;--text2:#666;--border:#1c1c28;--trunk:#8b5cf6;--trunk2:#a78bfa}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+header{background:var(--panel);border-bottom:1px solid var(--border);padding:1rem 2rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem}
+h1{font-size:1.3rem;color:var(--accent);letter-spacing:.5px}
+.subtitle{color:var(--text2);font-size:.8rem}
+.container{flex:1;display:grid;grid-template-columns:300px 1fr;gap:1px;background:var(--border)}
+@media(max-width:960px){.container{grid-template-columns:1fr}}
+.sidebar,.main{background:var(--bg);padding:1rem;overflow-y:auto}
+.sidebar{display:flex;flex-direction:column;gap:.8rem}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:.9rem}
+.card h3{font-size:.82rem;color:var(--accent);margin-bottom:.6rem;display:flex;align-items:center;gap:.3rem}
+.dropzone{border:2px dashed var(--border);border-radius:8px;padding:1.2rem 1rem;text-align:center;cursor:pointer;transition:all .3s;background:rgba(0,212,170,.015)}
+.dropzone:hover,.dropzone.dragover{border-color:var(--accent);background:rgba(0,212,170,.05)}
+.dropzone .icon{font-size:1.6rem;margin-bottom:.3rem}
+.dropzone p{color:var(--text2);font-size:.75rem}
+input[type="file"]{display:none}
+.btn{background:var(--accent);color:#000;border:none;padding:.5rem .9rem;border-radius:6px;font-weight:600;cursor:pointer;transition:opacity .2s;font-size:.8rem}
+.btn:hover{opacity:.85}
+.btn:disabled{opacity:.3;cursor:not-allowed}
+.btn-secondary{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.btn-secondary:hover{background:rgba(0,212,170,.06)}
+.param-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem}
+.param-row label{font-size:.75rem;color:var(--text2)}
+.param-row input[type="number"]{width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.2rem;border-radius:5px;text-align:center;font-size:.75rem}
+.param-row input[type="checkbox"]{width:14px;height:14px;accent-color:var(--accent)}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:.4rem}
+.info-item{background:var(--bg);border-radius:6px;padding:.4rem;text-align:center}
+.info-item .val{font-size:1rem;font-weight:700;color:var(--accent)}
+.info-item .lbl{font-size:.65rem;color:var(--text2);margin-top:.1rem}
+.tabs{display:flex;gap:.2rem;margin-bottom:.6rem;border-bottom:1px solid var(--border);padding-bottom:.3rem;flex-wrap:wrap}
+.tab{padding:.3rem .8rem;border-radius:5px;cursor:pointer;font-size:.75rem;color:var(--text2);transition:all .2s;border:none;background:transparent}
+.tab.active{background:rgba(0,212,170,.1);color:var(--accent);font-weight:600}
+.tab:hover:not(.active){color:var(--text)}
+.panel{display:none}
+.panel.active{display:block}
+pre{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:.8rem;overflow-x:auto;font-size:.72rem;line-height:1.4;max-height:50vh;color:#999}
+.status{padding:.4rem .8rem;border-radius:6px;font-size:.75rem;margin-top:.5rem;display:none}
+.status.show{display:block}
+.status.success{background:rgba(46,204,113,.08);color:#2ecc71;border:1px solid rgba(46,204,113,.2)}
+.status.error{background:rgba(255,107,107,.08);color:var(--accent2);border:1px solid rgba(255,107,107,.2)}
+.toolbar{display:flex;gap:.4rem;margin-bottom:.6rem;flex-wrap:wrap;align-items:center}
+.empty-state{text-align:center;padding:2.5rem 1rem;color:var(--text2)}
+.empty-state .icon{font-size:2rem;margin-bottom:.6rem;opacity:.4}
+.progress-bar{width:100%;height:2px;background:var(--border);border-radius:1px;overflow:hidden;margin-top:.3rem;display:none}
+.progress-bar.show{display:block}
+.progress-fill{height:100%;background:var(--accent);width:0%;transition:width .3s}
+.recon-canvas{position:relative;height:140px;background:#0d0d14;border-radius:8px;margin:.6rem 0;overflow-x:auto;overflow-y:hidden;border:1px solid var(--border)}
+.recon-inner{position:relative;height:100%;min-width:100%}
+.recon-note{position:absolute;border-radius:2px;opacity:.9;transition:opacity .2s}
+.recon-note:hover{opacity:1;z-index:5}
+.recon-note.trunk{background:var(--trunk)}
+.recon-legend{display:flex;flex-wrap:wrap;gap:.6rem;margin:.4rem 0;font-size:.7rem;color:var(--text2)}
+.recon-legend-item{display:flex;align-items:center;gap:.25rem}
+.recon-dot{width:10px;height:10px;border-radius:2px}
+.pattern-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:.8rem;margin-bottom:.6rem;transition:border-color .2s}
+.pattern-card:hover{border-color:var(--accent)}
+.pattern-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem}
+.pattern-card-title{font-weight:600;font-size:.85rem}
+.pattern-card-meta{font-size:.7rem;color:var(--text2);display:flex;gap:.6rem}
+.pattern-visual{display:flex;gap:1px;height:28px;align-items:flex-end;padding:.2rem;background:var(--bg);border-radius:4px;overflow-x:auto;margin:.3rem 0}
+.pattern-bar{flex-shrink:0;width:4px;border-radius:1px 1px 0 0;opacity:.85}
+.occ-chip{display:inline-block;padding:.1rem .35rem;border-radius:3px;font-size:.65rem;font-family:monospace;margin:.1rem}
+.trunk-timeline{position:relative;height:80px;background:#0d0d14;border-radius:8px;margin:.4rem 0;overflow:hidden;border:1px solid var(--border)}
+.trunk-note{position:absolute;width:3px;border-radius:1px;background:var(--trunk);opacity:.8}
+.stat-row{display:flex;justify-content:space-between;padding:.35rem 0;border-bottom:1px solid var(--border);font-size:.78rem}
+.stat-row:last-child{border-bottom:none}
+.stat-label{color:var(--text2)}
+.stat-value{font-weight:600;color:var(--accent)}
+.stat-value.trunk{color:var(--trunk)}
+</style>
+</head>
+<body>
+<header>
+<div>
+<h1>🎼 MIDI 压缩拆分器 (COSIATEC优化版)</h1>
+<div class="subtitle">迭代剥离 + 压缩比优化 + 闵可夫斯基和分解</div>
+</div>
+<div style="display:flex;gap:.4rem">
+<button class="btn btn-secondary" onclick="loadDemo()">加载示例</button>
+<button class="btn" id="btnExport" onclick="exportAll()" disabled>导出全部</button>
+</div>
+</header>
+<div class="container">
+<aside class="sidebar">
+<div class="card">
+<h3>📁 文件</h3>
+<div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+<div class="icon">📂</div>
+<p>点击或拖拽 MIDI 文件</p>
+<p style="font-size:.7rem;margin-top:.2rem">.mid / .midi</p>
+</div>
+<input type="file" id="fileInput" accept=".mid,.midi" onchange="handleFile(event)">
+<div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
+<div id="fileStatus" class="status"></div>
+</div>
+
+<div class="card">
+<h3>📊 信息</h3>
+<div class="info-grid">
+<div class="info-item"><div class="val" id="infoNotes">-</div><div class="lbl">音符</div></div>
+<div class="info-item"><div class="val" id="infoDuration">-</div><div class="lbl">拍</div></div>
+</div>
+<div style="margin-top:.5rem">
+<div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--text2);margin-bottom:.15rem"><span>压缩率</span><span id="fitRate">0%</span></div>
+<div class="progress-bar" style="display:block;height:6px;border-radius:3px"><div class="progress-fill" id="fitFill" style="width:0%;height:100%"></div></div>
+</div>
+</div>
+
+<div class="card">
+<h3>⚙️ 参数</h3>
+<div class="param-row"><label>最小模式长度</label><input type="number" id="minLen" value="4" min="2" max="64"></div>
+<div class="param-row"><label>最大模式长度</label><input type="number" id="maxLen" value="64" min="4" max="256"></div>
+<div class="param-row"><label>最少重复次数</label><input type="number" id="minOcc" value="2" min="2" max="50"></div>
+<div class="param-row"><label>音高容差</label><input type="number" id="pitchTol" value="0" min="0" max="12"></div>
+<div class="param-row"><label>时间容差</label><input type="number" id="timeTol" value="6" min="0" max="50"></div>
+<div class="param-row"><label>最大模式数</label><input type="number" id="maxPatterns" value="6" min="1" max="20"></div>
+<div class="param-row"><label>最小压缩比</label><input type="number" id="minRatio" value="2.0" min="1" max="20" step="0.5"></div>
+<div class="param-row"><label>检测移调</label><input type="checkbox" id="detectTrans" checked></div>
+<div class="param-row"><label>迭代剥离</label><input type="checkbox" id="iterative" checked></div>
+<button class="btn" style="width:100%;margin-top:.3rem" onclick="analyze()" id="btnAnalyze" disabled>🔍 压缩分析</button>
+</div>
+
+<div class="card" id="statsCard" style="display:none">
+<h3>📈 统计</h3>
+<div class="stat-row"><span class="stat-label">模式数量</span><span class="stat-value" id="statPatterns">-</span></div>
+<div class="stat-row"><span class="stat-label">模式实例</span><span class="stat-value" id="statInstances">-</span></div>
+<div class="stat-row"><span class="stat-label">主干音符</span><span class="stat-value trunk" id="statTrunk">-</span></div>
+<div class="stat-row"><span class="stat-label">压缩率</span><span class="stat-value" id="statCompress">-</span></div>
+<div class="stat-row"><span class="stat-label">COSIATEC轮次</span><span class="stat-value" id="statRounds">-</span></div>
+</div>
+</aside>
+
+<main class="main">
+<div class="tabs">
+<button class="tab active" onclick="switchTab('recon')">🏗️ 重建视图</button>
+<button class="tab" onclick="switchTab('patterns')">🔄 模式</button>
+<button class="tab" onclick="switchTab('trunk')">🌳 主干</button>
+<button class="tab" onclick="switchTab('timeline')">📐 时间轴</button>
+<button class="tab" onclick="switchTab('xml')">📄 XML</button>
+</div>
+
+<div id="panel-recon" class="panel active">
+<div id="reconContainer">
+<div class="empty-state"><div class="icon">🏗️</div><p>重建视图将显示如何用少量模式 + 主干拟合整个乐谱</p></div>
+</div>
+</div>
+<div id="panel-patterns" class="panel">
+<div id="patternsContainer"><div class="empty-state"><div class="icon">🔄</div><p>模式库将在此显示</p></div></div>
+</div>
+<div id="panel-trunk" class="panel">
+<div id="trunkContainer"><div class="empty-state"><div class="icon">🌳</div><p>主干音符（未被模式覆盖的部分）</p></div></div>
+</div>
+<div id="panel-timeline" class="panel">
+<div id="timelineContainer"><div class="empty-state"><div class="icon">📐</div><p>模式实例在整体时间轴上的排布</p></div></div>
+</div>
+<div id="panel-xml" class="panel">
+<div class="toolbar">
+<button class="btn btn-secondary" onclick="downloadXML('recon')">下载重建XML</button>
+<button class="btn btn-secondary" onclick="downloadXML('split')">下载拆分XML</button>
+<button class="btn btn-secondary" onclick="copyXML()">复制</button>
+</div>
+<pre id="xmlOutput"><code style="color:var(--text2)">请上传 MIDI 文件...</code></pre>
+</div>
+</main>
+</div>
+
+<script>
+// ==================== MIDI Parser ====================
+class MidiParser {
+  constructor(buf) {
+	this.data = new Uint8Array(buf);
+	this.pos = 0;
+  }
+  parse() {
+	const h = this.readHeader();
+	const tracks = [];
+	for (let i = 0; i < h.numTracks; i++) tracks.push(this.readTrack());
+	return { header: h, tracks };
+  }
+  readHeader() {
+	if (this.readString(4) !== 'MThd') throw new Error('Invalid MIDI');
+	this.readUint32();
+	return { format: this.readUint16(), numTracks: this.readUint16(), division: this.readInt16() };
+  }
+  readTrack() {
+	if (this.readString(4) !== 'MTrk') throw new Error('Bad track');
+	const len = this.readUint32(), end = this.pos + len;
+	const events = [];
+	let rs = 0;
+	while (this.pos < end) {
+	  const dt = this.readVarLen();
+	  let st = this.data[this.pos];
+	  if (st < 0x80) { st = rs; }
+	  else { this.pos++; if (st < 0xF0) rs = st; }
+	  events.push({ deltaTime: dt, ...this.readEvent(st) });
+	}
+	return { events };
+  }
+  readEvent(st) {
+	const ty = st & 0xF0, ch = st & 0x0F;
+	if (ty === 0x80) return { type: 'noteOff', channel: ch, note: this.r1(), vel: this.r1() };
+	if (ty === 0x90) { const n = this.r1(), v = this.r1(); return v === 0 ? { type: 'noteOff', channel: ch, note: n, vel: v } : { type: 'noteOn', channel: ch, note: n, vel: v }; }
+	if (ty === 0xB0) return { type: 'ctrl', channel: ch, ctrl: this.r1(), val: this.r1() };
+	if (ty === 0xC0) return { type: 'pgm', channel: ch, pgm: this.r1() };
+	if (ty === 0xE0) return { type: 'bend', channel: ch, val: (this.r1() << 7) | this.r1() };
+	if (st === 0xFF) {
+	  const mt = this.r1(), len = this.readVarLen(), data = this.rb(len);
+	  const ev = { type: 'meta', metaType: mt, data };
+	  if (mt === 0x51 && len === 3) ev.bpm = Math.round(60000000 / ((data[0] << 16) | (data[1] << 8) | data[2]));
+	  if (mt === 0x58 && len === 4) { ev.num = data[0]; ev.den = 1 << data[1]; }
+	  if (mt === 0x03 || mt === 0x01) { try { ev.text = new TextDecoder().decode(data); } catch(e){} }
+	  return ev;
+	}
+	return { type: 'skip' };
+  }
+  readString(n) { let s = ''; for (let i = 0; i < n; i++) s += String.fromCharCode(this.data[this.pos++]); return s; }
+  readUint32() { return (this.r1() << 24) | (this.r1() << 16) | (this.r1() << 8) | this.r1(); }
+  readUint16() { return (this.r1() << 8) | this.r1(); }
+  readInt16() { const v = this.readUint16(); return v > 0x7FFF ? v - 0x10000 : v; }
+  r1() { return this.data[this.pos++]; }
+  rb(n) { return this.data.slice(this.pos, this.pos += n); }
+  readVarLen() { let v = 0, b; do { b = this.r1(); v = (v << 7) | (b & 0x7F); } while (b & 0x80); return v; }
+}
+
+function midiToNotes(parsed) {
+  const notes = [], active = {};
+  let bpm = 120, ppq = Math.abs(parsed.header.division);
+  parsed.tracks.forEach((tr, ti) => {
+	let t = 0;
+	tr.events.forEach(e => {
+	  t += e.deltaTime;
+	  if (e.type === 'meta' && e.bpm) bpm = e.bpm;
+	  if (e.type === 'noteOn') active[`${ti}-${e.channel}-${e.note}`] = { track: ti, ch: e.channel, pitch: e.note, vel: e.vel, start: t };
+	  if (e.type === 'noteOff') {
+		const k = `${ti}-${e.channel}-${e.note}`;
+		if (active[k]) { const n = active[k]; notes.push({ ...n, end: t, dur: t - n.start }); delete active[k]; }
+	  }
+	});
+  });
+  notes.sort((a, b) => a.start - b.start || a.pitch - b.pitch);
+  const dur = notes.length ? Math.max(...notes.map(n => n.end)) : 0;
+  return { notes, ppq, bpm, dur, format: parsed.header.format, numTracks: parsed.header.numTracks };
+}
+
+// ==================== Point Representation for Geometric Analysis ====================
+function notesToPoints(notes) {
+  // Represent each note as a point: (onset_time, chromatic_pitch, duration, velocity, track)
+  // For SIA-style analysis, we use (time, pitch) as the primary 2D space
+  return notes.map((n, i) => ({
+	id: i, t: n.start, p: n.pitch, d: n.dur, v: n.vel, track: n.track, ch: n.ch,
+	raw: n
+  }));
+}
+
+function noteKey(n) { return `${n.track}-${n.start}-${n.pitch}`; }
+
+// ==================== SIA: Compute Maximal Translatable Patterns ====================
+function computeVectorTable(points) {
+  // Sort points by (t, p)
+  const sorted = [...points].sort((a, b) => a.t - b.t || a.p - b.p);
+  const n = sorted.length;
+  const vectors = []; // { dx, dy, from: pointA, to: pointB }
+
+  for (let i = 0; i < n; i++) {
+	for (let j = i + 1; j < n; j++) {
+	  vectors.push({
+		dx: sorted[j].t - sorted[i].t,
+		dy: sorted[j].p - sorted[i].p,
+		from: sorted[i],
+		to: sorted[j]
+	  });
+	}
+  }
+
+  // Sort vectors lexicographically by (dx, dy)
+  vectors.sort((a, b) => a.dx - b.dx || a.dy - b.dy);
+
+  // Group by vector to get MTPs
+  const mtps = []; // { vector: {dx, dy}, points: [point, ...] }
+  if (vectors.length === 0) return mtps;
+
+  let current = { dx: vectors[0].dx, dy: vectors[0].dy, points: new Set() };
+  current.points.add(vectors[0].from);
+  current.points.add(vectors[0].to);
+
+  for (let i = 1; i < vectors.length; i++) {
+	const v = vectors[i];
+	if (v.dx === current.dx && v.dy === current.dy) {
+	  current.points.add(v.from);
+	  current.points.add(v.to);
+	} else {
+	  mtps.push({ vector: { dx: current.dx, dy: current.dy }, points: Array.from(current.points) });
+	  current = { dx: v.dx, dy: v.dy, points: new Set() };
+	  current.points.add(v.from);
+	  current.points.add(v.to);
+	}
+  }
+  mtps.push({ vector: { dx: current.dx, dy: current.dy }, points: Array.from(current.points) });
+
+  return mtps;
+}
+
+// ==================== SIATEC: Find All Translators for a Pattern ====================
+function findTranslators(patternPoints, allPoints, pitchTol) {
+  // patternPoints: array of points
+  // Returns: array of vectors {dx, dy} by which pattern can be translated to match points in dataset
+  // Using the intersection method from SIATEC paper
+  const translators = [];
+  if (patternPoints.length === 0) return translators;
+
+  // For efficiency with pitch tolerance, we use a grid-based approach
+  const pointSet = new Set(allPoints.map(p => `${p.t},${p.p}`));
+
+  // Try each point in dataset as potential anchor for translation
+  const first = patternPoints[0];
+  const candidates = [];
+
+  for (const p of allPoints) {
+	const dx = p.t - first.t;
+	const dy = p.p - first.p;
+	// Quick check: all pattern points must have corresponding points after translation
+	let valid = true;
+	for (const pt of patternPoints) {
+	  const targetT = pt.t + dx;
+	  const targetP = pt.p + dy;
+	  // Check if any point in allPoints matches (with tolerance)
+	  let found = false;
+	  for (const ap of allPoints) {
+		if (ap.t === targetT && Math.abs(ap.p - targetP) <= pitchTol) {
+		  found = true;
+		  break;
+		}
+	  }
+	  if (!found) { valid = false; break; }
+	}
+	if (valid) candidates.push({ dx, dy });
+  }
+
+  // Remove duplicates and zero vector
+  const seen = new Set();
+  for (const c of candidates) {
+	const key = `${c.dx},${c.dy}`;
+	if (c.dx === 0 && c.dy === 0) continue;
+	if (!seen.has(key)) {
+	  seen.add(key);
+	  translators.push(c);
+	}
+  }
+
+  return translators;
+}
+
+// ==================== Pattern Extraction from MTP ====================
+function extractPattern(mtp, allPoints, pitchTol, timeTol) {
+  // Extract the actual pattern notes from an MTP
+  // Group points that form a connected/compact pattern
+  const pts = mtp.points.sort((a, b) => a.t - b.t || a.p - b.p);
+  if (pts.length < 2) return null;
+
+  // Find translators for this pattern
+  const translators = findTranslators(pts, allPoints, pitchTol);
+  if (translators.length === 0) return null;
+
+  // Compute coverage: total unique points covered by all occurrences
+  const covered = new Set();
+  for (const tr of translators) {
+	for (const pt of pts) {
+	  // Find matching point in allPoints
+	  for (const ap of allPoints) {
+		if (ap.t === pt.t + tr.dx && Math.abs(ap.p - (pt.p + tr.dy)) <= pitchTol) {
+		  covered.add(ap.id);
+		  break;
+		}
+	  }
+	}
+  }
+
+  // Also add the original pattern points
+  for (const pt of pts) covered.add(pt.id);
+
+  return {
+	points: pts,
+	vector: mtp.vector,
+	translators: translators,
+	coverage: covered.size,
+	patternSize: pts.length,
+	numTranslators: translators.length
+  };
+}
+
+// ==================== Compression Ratio ====================
+function compressionRatio(pattern) {
+  // compression ratio = coverage / (pattern_size + num_translators)
+  // Higher is better
+  const cost = pattern.patternSize + pattern.numTranslators;
+  if (cost === 0) return 0;
+  return pattern.coverage / cost;
+}
+
+// ==================== Compactness ====================
+function compactness(pattern) {
+  // Ratio of pattern points to points in bounding box
+  const pts = pattern.points;
+  if (pts.length < 2) return 1;
+  const minT = Math.min(...pts.map(p => p.t));
+  const maxT = Math.max(...pts.map(p => p.t));
+  const minP = Math.min(...pts.map(p => p.p));
+  const maxP = Math.max(...pts.map(p => p.p));
+
+  // Count points in bounding box from ALL points (we need global context)
+  // For now, approximate with pattern's own coverage
+  return pattern.patternSize / Math.max(1, pattern.coverage);
+}
+
+// ==================== COSIATEC: Iterative Peeling ====================
+function cosiatecCompress(notes, ppq, opts) {
+  const minLen = Math.max(2, opts.minLen || 4);
+  const maxLen = Math.min(256, opts.maxLen || 64);
+  const minOcc = Math.max(2, opts.minOcc || 2);
+  const pTol = opts.pitchTol || 0;
+  const tTol = opts.timeTol || 6;
+  const maxPat = Math.max(1, opts.maxPatterns || 6);
+  const minRatio = opts.minRatio || 2.0;
+  const iterative = opts.iterative !== false;
+  const detectTrans = opts.detectTrans !== false;
+
+  let remainingNotes = [...notes];
+  const allPatterns = [];
+  let round = 0;
+
+  while (remainingNotes.length >= minLen && round < maxPat) {
+	round++;
+	const points = notesToPoints(remainingNotes);
+
+	// Compute MTPs using SIA
+	const mtps = computeVectorTable(points);
+
+	// Filter and score patterns
+	const candidates = [];
+	for (const mtp of mtps) {
+	  if (mtp.points.length < minLen || mtp.points.length > maxLen) continue;
+
+	  const pattern = extractPattern(mtp, points, pTol, tTol);
+	  if (!pattern) continue;
+	  if (pattern.translators.length + 1 < minOcc) continue; // +1 for original
+
+	  const ratio = compressionRatio(pattern);
+	  if (ratio < minRatio) continue;
+
+	  // Compactness penalty
+	  const comp = compactness(pattern);
+	  const score = ratio * (1 + comp); // favor compact patterns slightly
+
+	  candidates.push({ ...pattern, score, round });
+	}
+
+	if (candidates.length === 0) break;
+
+	// Sort by score descending
+	candidates.sort((a, b) => b.score - a.score);
+
+	// Pick best pattern
+	const best = candidates[0];
+
+	// Mark covered notes for removal
+	const coveredIds = new Set();
+	const occurrences = [];
+
+	// Original occurrence
+	const origPoints = [];
+	for (const pt of best.points) {
+	  for (const ap of points) {
+		if (ap.t === pt.t && ap.p === pt.p) {
+		  origPoints.push(ap);
+		  coveredIds.add(ap.id);
+		  break;
+		}
+	  }
+	}
+	occurrences.push({ dx: 0, dy: 0, points: origPoints });
+
+	// Translated occurrences
+	for (const tr of best.translators) {
+	  const occPoints = [];
+	  let valid = true;
+	  for (const pt of best.points) {
+		let found = false;
+		for (const ap of points) {
+		  if (ap.t === pt.t + tr.dx && Math.abs(ap.p - (pt.p + tr.dy)) <= pTol) {
+			if (!coveredIds.has(ap.id)) {
+			  occPoints.push(ap);
+			  coveredIds.add(ap.id);
+			  found = true;
+			  break;
+			}
+		  }
+		}
+		if (!found) { valid = false; break; }
+	  }
+	  if (valid && occPoints.length === best.points.length) {
+		occurrences.push({ dx: tr.dx, dy: tr.dy, points: occPoints });
+	  }
+	}
+
+	if (occurrences.length < minOcc) continue;
+
+	// Store pattern with actual note references
+	const patternNotes = best.points.map(pt => {
+	  const match = remainingNotes.find(n => n.start === pt.t && n.pitch === pt.p);
+	  return match || pt;
+	});
+
+	allPatterns.push({
+	  id: round - 1,
+	  notes: patternNotes,
+	  occurrences: occurrences.map((o, i) => ({
+		id: i,
+		track: o.points[0]?.track || 0,
+		start: o.points[0]?.t || 0,
+		end: o.points[o.points.length - 1]?.t + (o.points[o.points.length - 1]?.d || 0) || 0,
+		transposition: o.dy,
+		delay: o.dx,
+		noteIds: o.points.map(p => p.id)
+	  })),
+	  coverage: best.coverage,
+	  score: best.score,
+	  compressionRatio: compressionRatio(best),
+	  round
+	});
+
+	if (iterative) {
+	  // Remove covered notes
+	  remainingNotes = remainingNotes.filter((n, i) => !coveredIds.has(i));
+	} else {
+	  break; // Non-iterative: find all patterns in one pass
+	}
+  }
+
+  // Build trunk from remaining notes
+  const trunk = remainingNotes;
+
+  // Calculate compression statistics
+  const totalNotes = notes.length;
+  const coveredByPatterns = totalNotes - trunk.length;
+  const patternDefSize = allPatterns.reduce((s, p) => s + p.notes.length, 0);
+  const instanceRefSize = allPatterns.reduce((s, p) => s + p.occurrences.length, 0);
+  const compressedSize = trunk.length + patternDefSize + instanceRefSize * 2;
+  const compressionRate = totalNotes > 0 ? (1 - compressedSize / totalNotes) * 100 : 0;
+
+  return {
+	patterns: allPatterns,
+	trunk,
+	compressionRate,
+	coverage: totalNotes > 0 ? coveredByPatterns / totalNotes : 0,
+	totalNotes,
+	patternNotes: coveredByPatterns,
+	instanceCount: allPatterns.reduce((s, p) => s + p.occurrences.length, 0),
+	rounds: round
+  };
+}
+
+// ==================== XML Generator ====================
+function generateXML(noteData, result, mode) {
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+  xml += `<midi xmlns="http://example.org/midi-xml" version="2.0">\n`;
+  xml += `  <header>\n`;
+  xml += `    <format>${noteData.format}</format>\n`;
+  xml += `    <tracks>${noteData.numTracks}</tracks>\n`;
+  xml += `    <division>${noteData.ppq}</division>\n`;
+  xml += `    <bpm>${noteData.bpm}</bpm>\n`;
+  xml += `    <durationTicks>${noteData.dur}</durationTicks>\n`;
+  xml += `  </header>\n`;
+
+  if (mode === 'recon') {
+	xml += `  <patterns count="${result.patterns.length}">\n`;
+	result.patterns.forEach((p, pi) => {
+	  xml += `    <pattern id="${pi}" name="Pattern_${pi+1}" length="${p.notes.length}" occurrences="${p.occurrences.length}" compressionRatio="${p.compressionRatio.toFixed(2)}">\n`;
+	  xml += `      <template>\n`;
+	  p.notes.forEach((n, ni) => {
+		xml += `        <note index="${ni}" relPitch="${ni > 0 ? n.pitch - p.notes[0].pitch : 0}" relStart="${ni > 0 ? n.start - p.notes[0].start : 0}" duration="${n.dur}" velocity="${n.vel}"/>\n`;
+	  });
+	  xml += `      </template>\n`;
+	  xml += `      <instances>\n`;
+	  p.occurrences.forEach((o, oi) => {
+		xml += `        <instance id="${oi}" track="${o.track}" delay="${o.delay}" transposition="${o.transposition}" end="${o.end}" noteCount="${o.noteIds.length}"/>\n`;
+	  });
+	  xml += `      </instances>\n`;
+	  xml += `    </pattern>\n`;
+	});
+	xml += `  </patterns>\n`;
+	xml += `  <trunk count="${result.trunk.length}">\n`;
+	result.trunk.forEach((n, i) => {
+	  xml += `    <note id="${i}" track="${n.track}" channel="${n.ch}" pitch="${n.pitch}" velocity="${n.vel}" start="${n.start}" duration="${n.dur}" end="${n.end}"/>\n`;
+	});
+	xml += `  </trunk>\n`;
+	xml += `  <statistics coverage="${(result.coverage*100).toFixed(1)}%" compression="${result.compressionRate.toFixed(1)}%" rounds="${result.rounds}"/>\n`;
+  } else {
+	xml += `  <notes count="${noteData.notes.length}">\n`;
+	noteData.notes.forEach((n, i) => {
+	  const inTrunk = result.trunk.some(t => t.track === n.track && t.start === n.start && t.pitch === n.pitch);
+	  let patId = -1, instId = -1;
+	  result.patterns.forEach(p => {
+		p.occurrences.forEach((o, oi) => {
+		  if (o.noteIds.includes(i)) { patId = p.id; instId = oi; }
+		});
+	  });
+	  xml += `    <note id="${i}" track="${n.track}" channel="${n.ch}" pitch="${n.pitch}" velocity="${n.vel}" start="${n.start}" duration="${n.dur}" end="${n.end}" segment="${inTrunk ? 'trunk' : 'pattern'}" patternId="${patId}" instanceId="${instId}"/>\n`;
+	});
+	xml += `  </notes>\n`;
+  }
+  xml += `</midi>`;
+  return xml;
+}
+
+// ==================== UI State ====================
+let currentData = null;
+let currentResult = null;
+let currentFile = 'midi';
+const PALETTE = ['#00d4aa','#ff6b6b','#ffd166','#118ab2','#ef476f','#06d6a0','#9b5de5','#f15bb5','#00bbf9','#fee440'];
+
+// ==================== Event Handlers ====================
+const dz = document.getElementById('dropzone');
+['dragenter','dragover','dragleave','drop'].forEach(e => {
+  dz.addEventListener(e, ev => { ev.preventDefault(); ev.stopPropagation(); });
+});
+dz.addEventListener('dragenter', () => dz.classList.add('dragover'));
+dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+dz.addEventListener('drop', e => { if (e.dataTransfer.files.length) processFile(e.dataTransfer.files[0]); });
+
+function handleFile(e) { if (e.target.files.length) processFile(e.target.files[0]); }
+
+function showStatus(msg, type) {
+  const el = document.getElementById('fileStatus');
+  el.textContent = msg; el.className = `status show ${type}`;
+  setTimeout(() => el.classList.remove('show'), 4000);
+}
+function setProg(p) {
+  const b = document.getElementById('progressBar'), f = document.getElementById('progressFill');
+  b.classList.add('show'); f.style.width = p + '%';
+  if (p >= 100) setTimeout(() => b.classList.remove('show'), 500);
+}
+
+function processFile(file) {
+  if (!file.name.match(/\.(mid|midi)$/i)) { showStatus('请选择 MIDI 文件', 'error'); return; }
+  currentFile = file.name.replace(/\.(mid|midi)$/i, '');
+  setProg(20);
+  const r = new FileReader();
+  r.onload = e => {
+	try {
+	  setProg(50);
+	  const parsed = new MidiParser(e.target.result).parse();
+	  currentData = midiToNotes(parsed);
+	  setProg(80);
+	  document.getElementById('infoNotes').textContent = currentData.notes.length;
+	  document.getElementById('infoDuration').textContent = Math.round(currentData.dur / currentData.ppq);
+	  const xml = generateXML(currentData, { patterns: [], trunk: currentData.notes, coverage: 0, compressionRate: 0, rounds: 0 }, 'recon');
+	  document.getElementById('xmlOutput').innerHTML = `<code>${esc(xml)}</code>`;
+	  setProg(100);
+	  document.getElementById('btnAnalyze').disabled = false;
+	  document.getElementById('btnExport').disabled = false;
+	  showStatus(`解析成功: ${currentData.notes.length} 音符`, 'success');
+	} catch (err) { setProg(0); showStatus('解析失败: ' + err.message, 'error'); console.error(err); }
+  };
+  r.readAsArrayBuffer(file);
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function analyze() {
+  if (!currentData) return;
+  const btn = document.getElementById('btnAnalyze');
+  btn.disabled = true; btn.textContent = 'COSIATEC分析中...';
+  setProg(10);
+
+  setTimeout(() => {
+	try {
+	  const opts = {
+		minLen: parseInt(document.getElementById('minLen').value),
+		maxLen: parseInt(document.getElementById('maxLen').value),
+		minOcc: parseInt(document.getElementById('minOcc').value),
+		pitchTol: parseInt(document.getElementById('pitchTol').value),
+		timeTol: parseInt(document.getElementById('timeTol').value),
+		maxPatterns: parseInt(document.getElementById('maxPatterns').value),
+		minRatio: parseFloat(document.getElementById('minRatio').value),
+		detectTrans: document.getElementById('detectTrans').checked,
+		iterative: document.getElementById('iterative').checked
+	  };
+	  setProg(40);
+	  currentResult = cosiatecCompress(currentData.notes, currentData.ppq, opts);
+	  setProg(80);
+
+	  document.getElementById('statsCard').style.display = 'block';
+	  document.getElementById('statPatterns').textContent = currentResult.patterns.length;
+	  document.getElementById('statInstances').textContent = currentResult.instanceCount;
+	  document.getElementById('statTrunk').textContent = currentResult.trunk.length;
+	  document.getElementById('statCompress').textContent = currentResult.compressionRate.toFixed(1) + '%';
+	  document.getElementById('statRounds').textContent = currentResult.rounds;
+
+	  const cov = Math.round(currentResult.compressionRate);
+	  document.getElementById('fitRate').textContent = cov + '%';
+	  document.getElementById('fitFill').style.width = Math.min(100, cov) + '%';
+
+	  renderReconstruction(currentData, currentResult);
+	  renderPatterns(currentResult);
+	  renderTrunk(currentResult);
+	  renderTimeline(currentData, currentResult);
+	  renderXML(currentData, currentResult);
+
+	  setProg(100);
+	  showStatus(`COSIATEC完成: ${currentResult.patterns.length} 模式, 压缩 ${cov}%`, 'success');
+	} catch (err) {
+	  showStatus('分析失败: ' + err.message, 'error');
+	  console.error(err);
+	} finally {
+	  btn.disabled = false;
+	  btn.textContent = '🔍 压缩分析';
+	}
+  }, 100);
+}
+
+// ==================== Renderers ====================
+function renderReconstruction(data, result) {
+  const c = document.getElementById('reconContainer');
+  if (!result.patterns.length && !result.trunk.length) {
+	c.innerHTML = '<div class="empty-state"><div class="icon">🏗️</div><p>无重建数据</p></div>';
+	return;
+  }
+  const maxT = Math.max(...data.notes.map(n => n.end), 1);
+  const sc = 100 / maxT;
+  const minP = Math.min(...data.notes.map(n => n.pitch));
+  const maxP = Math.max(...data.notes.map(n => n.pitch));
+  const pRange = maxP - minP || 1;
+
+  let h = '<div class="recon-legend">';
+  h += `<div class="recon-legend-item"><div class="recon-dot" style="background:var(--trunk)"></div>主干 (${result.trunk.length})</div>`;
+  result.patterns.forEach((p, i) => {
+	h += `<div class="recon-legend-item"><div class="recon-dot" style="background:${PALETTE[i % PALETTE.length]}"></div>模式 #${i+1} (${p.occurrences.length}次)</div>`;
+  });
+  h += `<div class="recon-legend-item" style="margin-left:auto"><span style="color:var(--text2)">压缩 ${result.compressionRate.toFixed(1)}%</span></div>`;
+  h += '</div>';
+
+  h += '<div class="recon-canvas"><div class="recon-inner">';
+
+  // Build coverage map
+  const coveredBy = new Map(); // noteKey -> patternId
+  result.patterns.forEach((p, pi) => {
+	p.occurrences.forEach(o => {
+	  o.noteIds.forEach(id => {
+		const key = `${data.notes[id]?.track}-${data.notes[id]?.start}-${data.notes[id]?.pitch}`;
+		coveredBy.set(key, pi);
+	  });
+	});
+  });
+
+  data.notes.forEach(n => {
+	const left = n.start * sc;
+	const width = Math.max(0.3, n.dur * sc);
+	const bottom = ((n.pitch - minP) / pRange) * 85 + 5;
+	const key = `${n.track}-${n.start}-${n.pitch}`;
+	const patId = coveredBy.get(key);
+	const color = patId !== undefined ? PALETTE[patId % PALETTE.length] : 'var(--trunk)';
+	const isPattern = patId !== undefined;
+	h += `<div class="recon-note ${isPattern ? '' : 'trunk'}" style="left:${left}%;width:${width}%;bottom:${bottom}%;height:5px;background:${color}" title="${noteN(n.pitch)} T${n.track} @${n.start} ${isPattern ? '模式#' + (patId+1) : '主干'}"></div>`;
+  });
+  h += '</div></div>';
+
+  h += `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin-top:.5rem">`;
+  h += `<div class="info-item"><div class="val">${result.patterns.length}</div><div class="lbl">模式数</div></div>`;
+  h += `<div class="info-item"><div class="val">${result.instanceCount}</div><div class="lbl">实例数</div></div>`;
+  h += `<div class="info-item"><div class="val" style="color:var(--trunk)">${result.trunk.length}</div><div class="lbl">主干音符</div></div>`;
+  h += `<div class="info-item"><div class="val">${result.compressionRate.toFixed(1)}%</div><div class="lbl">压缩率</div></div>`;
+  h += `</div>`;
+
+  c.innerHTML = h;
+}
+
+function renderPatterns(result) {
+  const c = document.getElementById('patternsContainer');
+  if (!result.patterns.length) {
+	c.innerHTML = '<div class="empty-state"><div class="icon">🔄</div><p>未检测到重复模式</p></div>';
+	return;
+  }
+  let h = '';
+  result.patterns.forEach((p, i) => {
+	const color = PALETTE[i % PALETTE.length];
+	const pitches = p.notes.map(n => n.pitch);
+	const minRP = Math.min(...pitches);
+	const maxRP = Math.max(...pitches);
+	const range = maxRP - minRP || 1;
+	h += `<div class="pattern-card" style="border-left:3px solid ${color}">
+	  <div class="pattern-card-header">
+		<span class="pattern-card-title" style="color:${color}">模式 #${i+1} (COSIATEC轮次 ${p.round})</span>
+		<span class="pattern-card-meta">
+		  <span>${p.notes.length} 音符模板</span>
+		  <span>${p.occurrences.length} 实例</span>
+		  <span>压缩比 ${p.compressionRatio.toFixed(2)}</span>
+		</span>
+	  </div>
+	  <div class="pattern-visual">
+		${p.notes.map(n => {
+		  const h = Math.max(3, ((n.pitch - minRP) / range) * 24 + 3);
+		  return `<div class="pattern-bar" style="height:${h}px;background:${color}"></div>`;
+		}).join('')}
+	  </div>
+	  <div style="font-size:.65rem;color:var(--text2);margin:.2rem 0">实例排布 (delay=起始偏移, trans=移调):</div>
+	  <div>
+		${p.occurrences.map((o, oi) => `<span class="occ-chip" style="background:${color}22;color:${color};border:1px solid ${color}44">#${oi+1} T${o.track} d=${o.delay} t=${o.transposition}</span>`).join('')}
+	  </div>
+	</div>`;
+  });
+  c.innerHTML = h;
+}
+
+function renderTrunk(result) {
+  const c = document.getElementById('trunkContainer');
+  if (!result.trunk.length) {
+	c.innerHTML = '<div class="empty-state"><div class="icon">🌳</div><p>所有音符都被模式覆盖，无主干</p></div>';
+	return;
+  }
+  const maxT = Math.max(...result.trunk.map(n => n.end), 1);
+  const sc = 100 / maxT;
+  const minP = Math.min(...result.trunk.map(n => n.pitch));
+  const maxP = Math.max(...result.trunk.map(n => n.pitch));
+  const pRange = maxP - minP || 1;
+
+  let h = `<div style="font-size:.8rem;color:var(--text2);margin-bottom:.4rem">${result.trunk.length} 个独立音符 (${(result.trunk.length / result.totalNotes * 100).toFixed(1)}%)</div>`;
+  h += '<div class="trunk-timeline">';
+  result.trunk.forEach(n => {
+	const left = n.start * sc;
+	const width = Math.max(0.2, n.dur * sc);
+	const bottom = ((n.pitch - minP) / pRange) * 80 + 10;
+	h += `<div class="trunk-note" style="left:${left}%;width:${width}%;bottom:${bottom}%;height:4px" title="${noteN(n.pitch)} T${n.track} @${n.start}"></div>`;
+  });
+  h += '</div>';
+
+  const byT = {};
+  result.trunk.forEach(n => { if (!byT[n.track]) byT[n.track] = []; byT[n.track].push(n); });
+  h += '<div style="margin-top:.6rem">';
+  Object.entries(byT).forEach(([tid, arr]) => {
+	h += `<div style="font-size:.75rem;color:var(--text2);margin:.3rem 0">轨道 ${tid}: ${arr.length} 音符</div>`;
+	h += `<div style="display:flex;flex-wrap:wrap;gap:.15rem">`;
+	arr.forEach(n => {
+	  h += `<span style="font-size:.65rem;background:var(--panel);padding:.1rem .3rem;border-radius:3px;color:var(--trunk2)">${noteN(n.pitch)}@${Math.round(n.start / (currentData?.ppq || 96))}</span>`;
+	});
+	h += `</div>`;
+  });
+  h += '</div>';
+  c.innerHTML = h;
+}
+
+function renderTimeline(data, result) {
+  const c = document.getElementById('timelineContainer');
+  const maxT = Math.max(...data.notes.map(n => n.end), 1);
+  const sc = 100 / maxT;
+
+  let h = '';
+  const tracks = [...new Set(data.notes.map(n => n.track))].sort((a, b) => a - b);
+  tracks.forEach(tid => {
+	h += `<div class="card" style="margin-bottom:.5rem">
+	  <div style="font-size:.8rem;font-weight:600;margin-bottom:.3rem">轨道 ${tid}</div>
+	  <div style="position:relative;height:40px;background:#0d0d14;border-radius:6px;overflow:hidden">`;
+
+	const trunkNotes = result.trunk.filter(n => n.track === tid);
+	let lastEnd = 0;
+	trunkNotes.sort((a, b) => a.start - b.start);
+	trunkNotes.forEach(n => {
+	  if (n.start > lastEnd) {
+		const left = lastEnd * sc;
+		const width = (n.start - lastEnd) * sc;
+		h += `<div style="position:absolute;left:${left}%;width:${width}%;top:0;bottom:0;background:repeating-linear-gradient(45deg,#1e1e30,#1e1e30 3px,#151520 3px,#151520 6px);opacity:.6" title="间隙"></div>`;
+	  }
+	  const left = n.start * sc;
+	  const width = Math.max(0.3, n.dur * sc);
+	  h += `<div style="position:absolute;left:${left}%;width:${width}%;top:0;bottom:0;background:var(--trunk);opacity:.7" title="主干"></div>`;
+	  lastEnd = Math.max(lastEnd, n.end);
+	});
+
+	result.patterns.forEach((p, pi) => {
+	  p.occurrences.filter(o => o.track === tid).forEach(o => {
+		const left = o.start * sc;
+		const width = Math.max(0.3, (o.end - o.start) * sc);
+		h += `<div style="position:absolute;left:${left}%;width:${width}%;top:0;bottom:0;background:${PALETTE[pi % PALETTE.length]};opacity:.75;border:1px solid rgba(255,255,255,.1);border-radius:2px" title="模式#${pi+1} 拍${Math.round(o.start/data.ppq)}-${Math.round(o.end/data.ppq)}"></div>`;
+	  });
+	});
+	h += `</div></div>`;
+  });
+
+  h += `<div class="card">
+	<div style="font-size:.8rem;font-weight:600;margin-bottom:.3rem">整体时间轴</div>
+	<div style="position:relative;height:50px;background:#0d0d14;border-radius:6px;overflow:hidden">`;
+  result.patterns.forEach((p, pi) => {
+	p.occurrences.forEach(o => {
+	  const left = o.start * sc;
+	  const width = Math.max(0.3, (o.end - o.start) * sc);
+	  const top = (o.track % 4) * 25;
+	  h += `<div style="position:absolute;left:${left}%;width:${width}%;top:${top}%;height:23%;background:${PALETTE[pi % PALETTE.length]};opacity:.8;border-radius:2px" title="模式#${pi+1} T${o.track}"></div>`;
+	});
+  });
+  h += `</div></div>`;
+
+  c.innerHTML = h;
+}
+
+function renderXML(data, result) {
+  const xml = generateXML(data, result, 'recon');
+  document.getElementById('xmlOutput').innerHTML = `<code>${esc(xml)}</code>`;
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+}
+
+function downloadXML(mode) {
+  if (!currentData || !currentResult) return;
+  const xml = generateXML(currentData, currentResult, mode);
+  const name = currentFile + (mode === 'recon' ? '_reconstruction' : '_split') + '.xml';
+  dl(xml, name, 'application/xml');
+}
+function exportAll() {
+  if (!currentData || !currentResult) return;
+  downloadXML('recon');
+  setTimeout(() => downloadXML('split'), 300);
+}
+function copyXML() {
+  if (!currentData || !currentResult) return;
+  navigator.clipboard.writeText(generateXML(currentData, currentResult, 'recon')).then(() => showStatus('已复制', 'success'));
+}
+function dl(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
+function noteN(p) { const n = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']; return n[p%12] + (Math.floor(p/12)-1); }
+
+function loadDemo() {
+  // Demo: ABA'C structure with long patterns
+  // Pattern A: 8-note ascending/descending motif repeated 3 times
+  // Pattern B: 8-note motif transposed +2 repeated 2 times
+  // Trunk: unique bridge and ending
+  const bytes = [
+	0x4D,0x54,0x68,0x64, 0x00,0x00,0x00,0x06, 0x00,0x01, 0x00,0x02, 0x00,0x60,
+	0x4D,0x54,0x72,0x6B, 0x00,0x00,0x00,0x14,
+	0x00, 0xFF,0x58,0x04,0x04,0x02,0x18,0x08,
+	0x00, 0xFF,0x51,0x03,0x07,0xA1,0x20,
+	0x00, 0xFF,0x03,0x04,0x44,0x65,0x6D,0x6F,
+	0x00, 0xFF,0x2F,0x00,
+	0x4D,0x54,0x72,0x6B, 0x00,0x00,0x01,0x40,
+	0x00, 0xC0,0x00,
+	// === Pattern A (8 notes) x3 ===
+	// Instance 1
+	0x00, 0x90,0x3C,0x50, 0x18, 0x80,0x3C,0x00,
+	0x00, 0x90,0x40,0x50, 0x18, 0x80,0x40,0x00,
+	0x00, 0x90,0x43,0x50, 0x18, 0x80,0x43,0x00,
+	0x00, 0x90,0x48,0x50, 0x18, 0x80,0x48,0x00,
+	0x00, 0x90,0x47,0x50, 0x18, 0x80,0x47,0x00,
+	0x00, 0x90,0x43,0x50, 0x18, 0x80,0x43,0x00,
+	0x00, 0x90,0x40,0x50, 0x18, 0x80,0x40,0x00,
+	0x00, 0x90,0x3C,0x50, 0x18, 0x80,0x3C,0x00,
+	// Instance 2
+	0x00, 0x90,0x3C,0x50, 0x18, 0x80,0x3C,0x00,
+	0x00, 0x90,0x40,0x50, 0x18, 0x80,0x40,0x00,
+	0x00, 0x90,0x43,0x50, 0x18, 0x80,0x43,0x00,
+	0x00, 0x90,0x48,0x50, 0x18, 0x80,0x48,0x00,
+	0x00, 0x90,0x47,0x50, 0x18, 0x80,0x47,0x00,
+	0x00, 0x90,0x43,0x50, 0x18, 0x80,0x43,0x00,
+	0x00, 0x90,0x40,0x50, 0x18, 0x80,0x40,0x00,
+	0x00, 0x90,0x3C,0x50, 0x18, 0x80,0x3C,0x00,
+	// Instance 3
+	0x00, 0x90,0x3C,0x50, 0x18, 0x80,0x3C,0x00,
+	0x00, 0x90,0x40,0x50, 0x18, 0x80,0x40,0x00,
+	0x00, 0x90,0x43,0x50, 0x18, 0x80,0x43,0x00,
+	0x00, 0x90,0x48,0x50, 0x18, 0x80,0x48,0x00,
+	0x00, 0x90,0x47,0x50, 0x18, 0x80,0x47,0x00,
+	0x00, 0x90,0x43,0x50, 0x18, 0x80,0x43,0x00,
+	0x00, 0x90,0x40,0x50, 0x18, 0x80,0x40,0x00,
+	0x00, 0x90,0x3C,0x50, 0x18, 0x80,0x3C,0x00,
+	// === Pattern B (8 notes, transposed +2) x2 ===
+	0x00, 0x90,0x3E,0x50, 0x18, 0x80,0x3E,0x00,
+	0x00, 0x90,0x42,0x50, 0x18, 0x80,0x42,0x00,
+	0x00, 0x90,0x45,0x50, 0x18, 0x80,0x45,0x00,
+	0x00, 0x90,0x4A,0x50, 0x18, 0x80,0x4A,0x00,
+	0x00, 0x90,0x49,0x50, 0x18, 0x80,0x49,0x00,
+	0x00, 0x90,0x45,0x50, 0x18, 0x80,0x45,0x00,
+	0x00, 0x90,0x42,0x50, 0x18, 0x80,0x42,0x00,
+	0x00, 0x90,0x3E,0x50, 0x18, 0x80,0x3E,0x00,
+	// Instance 2
+	0x00, 0x90,0x3E,0x50, 0x18, 0x80,0x3E,0x00,
+	0x00, 0x90,0x42,0x50, 0x18, 0x80,0x42,0x00,
+	0x00, 0x90,0x45,0x50, 0x18, 0x80,0x45,0x00,
+	0x00, 0x90,0x4A,0x50, 0x18, 0x80,0x4A,0x00,
+	0x00, 0x90,0x49,0x50, 0x18, 0x80,0x49,0x00,
+	0x00, 0x90,0x45,0x50, 0x18, 0x80,0x45,0x00,
+	0x00, 0x90,0x42,0x50, 0x18, 0x80,0x42,0x00,
+	0x00, 0x90,0x3E,0x50, 0x18, 0x80,0x3E,0x00,
+	// === Trunk: unique bridge (4 notes) ===
+	0x00, 0x90,0x3B,0x60, 0x30, 0x80,0x3B,0x00,
+	0x00, 0x90,0x3E,0x60, 0x30, 0x80,0x3E,0x00,
+	0x00, 0x90,0x42,0x60, 0x30, 0x80,0x42,0x00,
+	0x00, 0x90,0x47,0x60, 0x30, 0x80,0x47,0x00,
+	// === Pattern A' (transposed -3) x1 ===
+	0x00, 0x90,0x39,0x50, 0x18, 0x80,0x39,0x00,
+	0x00, 0x90,0x3D,0x50, 0x18, 0x80,0x3D,0x00,
+	0x00, 0x90,0x40,0x50, 0x18, 0x80,0x40,0x00,
+	0x00, 0x90,0x45,0x50, 0x18, 0x80,0x45,0x00,
+	0x00, 0x90,0x44,0x50, 0x18, 0x80,0x44,0x00,
+	0x00, 0x90,0x40,0x50, 0x18, 0x80,0x40,0x00,
+	0x00, 0x90,0x3D,0x50, 0x18, 0x80,0x3D,0x00,
+	0x00, 0x90,0x39,0x50, 0x18, 0x80,0x39,0x00,
+	// === Trunk: ending ===
+	0x00, 0x90,0x3C,0x70, 0x60, 0x80,0x3C,0x00,
+	0x00, 0xFF,0x2F,0x00
+  ];
+  const data = new Uint8Array(bytes);
+  const blob = new Blob([data], { type: 'audio/midi' });
+  const file = new File([blob], 'demo.mid', { type: 'audio/midi' });
+  processFile(file);
+}
+</script>
+</body>
+</html>
