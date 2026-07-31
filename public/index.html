@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="基于COSIATEC算法的MIDI压缩拆分工具 — 迭代剥离 + 压缩比优化 + 闵可夫斯基和分解">
+<title>MIDI 压缩拆分器 (COSIATEC优化版)</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ======== Header ======== -->
+<header>
+  <div>
+    <h1>🎼 MIDI 压缩拆分器 (COSIATEC优化版)</h1>
+    <div class="subtitle">迭代剥离 + 压缩比优化 + 闵可夫斯基和分解</div>
+  </div>
+  <div style="display:flex;gap:.4rem">
+    <button class="btn btn-secondary" id="btnDemo">加载示例</button>
+    <button class="btn" id="btnExport" disabled>导出全部</button>
+  </div>
+</header>
+
+<!-- ======== Main Layout ======== -->
+<div class="container">
+
+  <!-- ====== Sidebar ====== -->
+  <aside class="sidebar">
+
+    <!-- File Upload -->
+    <div class="card">
+      <h3>📁 文件</h3>
+      <div class="dropzone" id="dropzone">
+        <div class="icon">📂</div>
+        <p>点击或拖拽 MIDI 文件</p>
+        <p style="font-size:.7rem;margin-top:.2rem">.mid / .midi</p>
+      </div>
+      <input type="file" id="fileInput" accept=".mid,.midi">
+      <div class="progress-bar" id="progressBar">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div id="fileStatus" class="status"></div>
+    </div>
+
+    <!-- Info -->
+    <div class="card">
+      <h3>📊 信息</h3>
+      <div class="info-grid">
+        <div class="info-item">
+          <div class="val" id="infoNotes">-</div>
+          <div class="lbl">音符</div>
+        </div>
+        <div class="info-item">
+          <div class="val" id="infoDuration">-</div>
+          <div class="lbl">拍</div>
+        </div>
+      </div>
+      <div style="margin-top:.5rem">
+        <div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--text2);margin-bottom:.15rem">
+          <span>压缩率</span>
+          <span id="fitRate">0%</span>
+        </div>
+        <div class="progress-bar" style="display:block;height:6px;border-radius:3px">
+          <div class="progress-fill" id="fitFill" style="width:0%;height:100%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Parameters -->
+    <div class="card">
+      <h3>⚙️ 参数</h3>
+      <div class="param-row">
+        <label>最小模式长度</label>
+        <input type="number" id="minLen" value="4" min="2" max="64">
+      </div>
+      <div class="param-row">
+        <label>最大模式长度</label>
+        <input type="number" id="maxLen" value="64" min="4" max="256">
+      </div>
+      <div class="param-row">
+        <label>最少重复次数</label>
+        <input type="number" id="minOcc" value="2" min="2" max="50">
+      </div>
+      <div class="param-row">
+        <label>音高容差</label>
+        <input type="number" id="pitchTol" value="0" min="0" max="12">
+      </div>
+      <div class="param-row">
+        <label>时间容差</label>
+        <input type="number" id="timeTol" value="6" min="0" max="50">
+      </div>
+      <div class="param-row">
+        <label>最大模式数</label>
+        <input type="number" id="maxPatterns" value="6" min="1" max="20">
+      </div>
+      <div class="param-row">
+        <label>最小压缩比</label>
+        <input type="number" id="minRatio" value="2.0" min="1" max="20" step="0.5">
+      </div>
+      <div class="param-row">
+        <label>检测移调</label>
+        <input type="checkbox" id="detectTrans" checked>
+      </div>
+      <div class="param-row">
+        <label>迭代剥离</label>
+        <input type="checkbox" id="iterative" checked>
+      </div>
+      <button class="btn" style="width:100%;margin-top:.3rem" id="btnAnalyze" disabled>
+        🔍 压缩分析
+      </button>
+    </div>
+
+    <!-- Statistics -->
+    <div class="card" id="statsCard" style="display:none">
+      <h3>📈 统计</h3>
+      <div class="stat-row">
+        <span class="stat-label">模式数量</span>
+        <span class="stat-value" id="statPatterns">-</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">模式实例</span>
+        <span class="stat-value" id="statInstances">-</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">主干音符</span>
+        <span class="stat-value trunk" id="statTrunk">-</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">压缩率</span>
+        <span class="stat-value" id="statCompress">-</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">COSIATEC轮次</span>
+        <span class="stat-value" id="statRounds">-</span>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ====== Main Content ====== -->
+  <main class="main">
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" data-panel="recon">🏗️ 重建视图</button>
+      <button class="tab" data-panel="patterns">🔄 模式</button>
+      <button class="tab" data-panel="trunk">🌳 主干</button>
+      <button class="tab" data-panel="timeline">📐 时间轴</button>
+      <button class="tab" data-panel="xml">📄 XML</button>
+    </div>
+
+    <!-- Panels -->
+    <div id="panel-recon" class="panel active">
+      <div id="reconContainer">
+        <div class="empty-state">
+          <div class="icon">🏗️</div>
+          <p>重建视图将显示如何用少量模式 + 主干拟合整个乐谱</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-patterns" class="panel">
+      <div id="patternsContainer">
+        <div class="empty-state">
+          <div class="icon">🔄</div>
+          <p>模式库将在此显示</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-trunk" class="panel">
+      <div id="trunkContainer">
+        <div class="empty-state">
+          <div class="icon">🌳</div>
+          <p>主干音符（未被模式覆盖的部分）</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-timeline" class="panel">
+      <div id="timelineContainer">
+        <div class="empty-state">
+          <div class="icon">📐</div>
+          <p>模式实例在整体时间轴上的排布</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-xml" class="panel">
+      <div class="toolbar">
+        <button class="btn btn-secondary" id="btnXMLRecon">下载重建XML</button>
+        <button class="btn btn-secondary" id="btnXMLSplit">下载拆分XML</button>
+        <button class="btn btn-secondary" id="btnXMLCopy">复制</button>
+      </div>
+      <pre id="xmlOutput"><code style="color:var(--text2)">请上传 MIDI 文件...</code></pre>
+    </div>
+
+  </main>
+</div>
+
+<!-- Application Script (ES Module) -->
+<script type="module">
+  import { initApp } from '../src/ui/app.js';
+  initApp();
+</script>
+
+</body>
+</html>

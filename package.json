@@ -1,0 +1,32 @@
+{
+  "name": "midi-structure-splitter",
+  "version": "1.0.0",
+  "description": "基于COSIATEC算法的MIDI压缩与模式分析工具 — 迭代剥离 + 压缩比优化 + 闵可夫斯基和分解",
+  "type": "module",
+  "main": "public/index.html",
+  "scripts": {
+    "dev": "npx serve public",
+    "start": "npx serve public",
+    "lint": "eslint src/",
+    "test": "node --test test/"
+  },
+  "keywords": [
+    "midi",
+    "cosiatec",
+    "music-analysis",
+    "pattern-discovery",
+    "compression",
+    "music-information-retrieval",
+    "sia",
+    "siatec"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/midi-structure-splitter.git"
+  },
+  "devDependencies": {
+    "serve": "^14.2.0"
+  }
+}
