@@ -47,9 +47,10 @@ jobs:
           # Fix import paths in index.html: ../src/ -> ./src/
           sed -i "s|from '../src/|from './src/|g" public/index.html
           sed -i "s|import { initApp } from '../src/|import { initApp } from './src/|g" public/index.html
-          # Fix Worker paths in app.js for GitHub Pages (public/ is root)
-          # ../../public/worker.js -> ./worker.js
-          sed -i "s|../../public/worker.js|./worker.js|g" public/src/ui/app.js
+          # Fix Worker paths in app.js for GitHub Pages
+          # Deployed: public/src/ui/app.js → needs public/worker.js (same as root /worker.js)
+          # Relative: from src/ui/app.js, ../../ goes to root, so: ../../worker.js
+          sed -i "s|../../public/worker.js|../../worker.js|g" public/src/ui/app.js
           echo "=== Deploy directory contents ==="
           ls -la public/ && ls -la public/src/
 
