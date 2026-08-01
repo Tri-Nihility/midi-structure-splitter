@@ -155,6 +155,16 @@ function scheduleCacheCleanup() {
 
 // ---- File Handling ----
 
+/** @type {File|null} Last processed file for retry */
+let _lastFile = null;
+
+/**
+ * Retry processing the last file that failed.
+ */
+function retryLastFile() {
+  if (_lastFile) processFile(_lastFile);
+}
+
 /**
  * Process a MIDI file from user upload.
  * @param {File} file
@@ -165,6 +175,7 @@ function processFile(file) {
     return;
   }
 
+  _lastFile = file;
   currentFileName = file.name.replace(/\.(mid|midi)$/i, '');
   setProgress(20);
 
@@ -225,9 +236,17 @@ function processFile(file) {
       );
     } catch (err) {
       setProgress(0);
-      showStatus('解析失败: ' + err.message, 'error');
+      const msg = '解析失败: ' + err.message;
+      const el = document.getElementById('fileStatus');
+      el.innerHTML = msg + ' <button class="retry-btn" onclick="window._retryLastFile()">重试</button><button class="status-close" onclick="this.parentElement.classList.remove(\'show\')">&times;</button>';
+      el.className = 'status show error';
       console.error(err);
     }
+  };
+
+  reader.onerror = () => {
+    setProgress(0);
+    showStatus('文件读取失败，请重试', 'error');
   };
 
   reader.readAsArrayBuffer(file);
@@ -412,7 +431,10 @@ function analyze() {
     if (type === 'error') {
       stopProgressAnimation();
       setProgress(0);
-      showStatus('分析失败: ' + e.data.message, 'error');
+      const msg = '分析失败: ' + e.data.message;
+      const el = document.getElementById('fileStatus');
+      el.innerHTML = msg + ' <button class="retry-btn" onclick="window._retryAnalysis()">重试</button><button class="status-close" onclick="this.parentElement.classList.remove(\'show\')">&times;</button>';
+      el.className = 'status show error';
       btn.disabled = false;
       btn.textContent = '压缩分析';
     }
@@ -421,7 +443,9 @@ function analyze() {
   w.onerror = (err) => {
     stopProgressAnimation();
     setProgress(0);
-    showStatus('Worker 错误', 'error');
+    const el = document.getElementById('fileStatus');
+    el.innerHTML = 'Worker 错误 <button class="retry-btn" onclick="window._retryAnalysis()">重试</button><button class="status-close" onclick="this.parentElement.classList.remove(\'show\')">&times;</button>';
+    el.className = 'status show error';
     btn.disabled = false;
     btn.textContent = '压缩分析';
     console.error('Worker error:', err);
@@ -1030,6 +1054,10 @@ export function initApp() {
   window.addEventListener('online', updateOnlineStatus);
   window.addEventListener('offline', updateOnlineStatus);
   updateOnlineStatus();
+
+  // Expose retry helpers globally for inline onclick handlers
+  window._retryLastFile = retryLastFile;
+  window._retryAnalysis = analyze;
 }
 
 export { processFile, analyze, switchTab, exportAll, downloadXML, copyXML, loadDemo };
