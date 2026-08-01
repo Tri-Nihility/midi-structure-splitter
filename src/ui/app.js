@@ -41,6 +41,9 @@ let currentFileBuffer = null;
 /** @type {boolean} Whether the current operation is cancelled */
 let _cancelled = false;
 
+/** @type {string|null} Pre-fetched Worker script code for Blob URL creation */
+let _workerCode = null;
+
 /** @type {Array} Analysis history (last 5 results) */
 const analysisHistory = [];
 
@@ -256,16 +259,62 @@ function processFile(file) {
 
 /**
  * Get or create the Web Worker. Reuses existing worker if available.
- * Uses a URL relative to the current script to handle different deployment paths.
- * @returns {Worker}
+ * Tries multiple strategies to load the worker script:
+ *   1. Pre-fetched Blob URL (most reliable, avoids path issues)
+ *   2. Relative path from import.meta.url
+ *   3. Absolute path from origin
+ *   4. Synchronous XHR fallback
  */
 function getWorker() {
-  if (!worker) {
-    // Use import.meta.url to resolve worker path relative to this module
-    const workerUrl = new URL('../../../public/worker.js', import.meta.url);
-    worker = new Worker(workerUrl.href);
+  if (worker) return worker;
+
+  // Strategy 1: Use pre-fetched code via Blob URL (most robust)
+  if (_workerCode) {
+    try {
+      const blob = new Blob([_workerCode], { type: 'application/javascript' });
+      const blobUrl = URL.createObjectURL(blob);
+      worker = new Worker(blobUrl);
+      URL.revokeObjectURL(blobUrl);
+      console.log('[getWorker] Worker created via Blob URL (pre-fetched)');
+      return worker;
+    } catch (e) {
+      console.warn('[getWorker] Blob Worker failed:', e.message);
+    }
   }
-  return worker;
+
+  // Strategy 2: Direct URL from import.meta.url
+  const paths = [
+    new URL('../../public/worker.js', import.meta.url).href,
+    new URL('/public/worker.js', location.origin).href,
+  ];
+  for (const path of paths) {
+    try {
+      worker = new Worker(path);
+      console.log('[getWorker] Worker created via URL:', path);
+      return worker;
+    } catch (e) {
+      console.warn('[getWorker] URL Worker failed:', path, e.message);
+    }
+  }
+
+  // Strategy 3: Synchronous fallback — fetch and create Blob Worker
+  try {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', paths[0], false); // synchronous
+    xhr.send();
+    if (xhr.status === 200) {
+      const blob = new Blob([xhr.responseText], { type: 'application/javascript' });
+      const blobUrl = URL.createObjectURL(blob);
+      worker = new Worker(blobUrl);
+      URL.revokeObjectURL(blobUrl);
+      console.log('[getWorker] Worker created via sync XHR Blob');
+      return worker;
+    }
+  } catch (e) {
+    console.warn('[getWorker] Sync XHR fallback failed:', e.message);
+  }
+
+  throw new Error('无法创建 Worker：请确保从项目根目录启动服务器（npx serve .），然后访问 /public/ 路径');
 }
 
 /**
@@ -327,7 +376,17 @@ function analyze() {
   // Show animated progress bar
   startProgressAnimation();
 
-  const w = getWorker();
+  let w;
+  try {
+    w = getWorker();
+  } catch (e) {
+    stopProgressAnimation();
+    setProgress(0);
+    showStatus('Worker 加载失败: ' + e.message + '。请从项目根目录启动: npx serve .', 'error');
+    btn.disabled = false;
+    btn.textContent = '压缩分析';
+    return;
+  }
 
   // Determine analysis mode: progressive for larger files, direct for small
   const useProgressive = currentData.notes.length > 500;
@@ -443,12 +502,19 @@ function analyze() {
   w.onerror = (err) => {
     stopProgressAnimation();
     setProgress(0);
+    killWorker(); // Clean up failed worker so next attempt creates a fresh one
     const el = document.getElementById('fileStatus');
-    el.innerHTML = 'Worker 错误 <button class="retry-btn" onclick="window._retryAnalysis()">重试</button><button class="status-close" onclick="this.parentElement.classList.remove(\'show\')">&times;</button>';
+    // Extract all available error info for diagnosis
+    const parts = [];
+    if (err.message) parts.push(err.message);
+    if (err.filename) parts.push('文件: ' + err.filename);
+    if (err.lineno) parts.push('行: ' + err.lineno);
+    const errMsg = parts.length > 0 ? parts.join(' | ') : '未知 Worker 错误';
+    el.innerHTML = 'Worker 错误: ' + errMsg + ' — 请确认从项目根目录启动 (npx serve .) <button class="retry-btn" onclick="window._retryAnalysis()">重试</button><button class="status-close" onclick="this.parentElement.classList.remove(\'show\')">&times;</button>';
     el.className = 'status show error';
     btn.disabled = false;
     btn.textContent = '压缩分析';
-    console.error('Worker error:', err);
+    console.error('Worker error:', err, 'message:', err.message, 'filename:', err.filename, 'lineno:', err.lineno, 'colno:', err.colno, 'error:', err.error);
   };
 
   w.postMessage({
@@ -525,7 +591,16 @@ function autoOptimize() {
 
   showStatus('开始自动优化（后台计算，页面不会卡死）', 'success');
 
-  const w = getWorker();
+  let w;
+  try {
+    w = getWorker();
+  } catch (e) {
+    stopProgressAnimation();
+    showStatus('Worker 加载失败: ' + e.message, 'error');
+    btnAuto.disabled = false;
+    btnAuto.textContent = '自动优化';
+    return;
+  }
 
   w.onmessage = (e) => {
     const { type, tested, total, bestRate, bestParams, result } = e.data;
@@ -586,12 +661,18 @@ function autoOptimize() {
 
   w.onerror = (err) => {
     stopProgressAnimation();
-    showStatus('Worker 错误', 'error');
+    killWorker(); // Clean up failed worker so next attempt creates a fresh one
+    const parts = [];
+    if (err.message) parts.push(err.message);
+    if (err.filename) parts.push('文件: ' + err.filename);
+    if (err.lineno) parts.push('行: ' + err.lineno);
+    const errMsg = parts.length > 0 ? parts.join(' | ') : '未知错误';
+    showStatus('Worker 错误: ' + errMsg, 'error');
     btnAnalyze.disabled = false;
     btnAuto.disabled = false;
     btnAuto.textContent = '自动优化';
     btnCancel.style.display = 'none';
-    console.error('Worker error:', err);
+    console.error('Worker error:', err, 'message:', err.message, 'filename:', err.filename, 'lineno:', err.lineno, 'colno:', err.colno, 'error:', err.error);
   };
 
   w.postMessage({
@@ -936,6 +1017,13 @@ function loadDemo() {
  * Initialize all event listeners and drag-and-drop handlers.
  */
 export function initApp() {
+  // Pre-fetch Worker script for Blob URL fallback (assigns to module-level _workerCode)
+  const workerScriptUrl = new URL('../../public/worker.js', import.meta.url).href;
+  fetch(workerScriptUrl)
+    .then(r => r.text())
+    .then(code => { _workerCode = code; })
+    .catch(e => console.warn('[initApp] Worker script pre-fetch failed:', e.message));
+
   // Drag-and-drop + click to open file picker
   const dropzone = document.getElementById('dropzone');
   const fileInput = document.getElementById('fileInput');

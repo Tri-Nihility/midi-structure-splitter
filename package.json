@@ -5,8 +5,8 @@
   "type": "module",
   "main": "public/index.html",
   "scripts": {
-    "dev": "npx serve public",
-    "start": "npx serve public",
+    "dev": "npx serve .",
+    "start": "npx serve .",
     "lint": "eslint src/",
     "test": "node --test test/"
   },
