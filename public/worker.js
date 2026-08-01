@@ -153,6 +153,66 @@ function computeVectorTable(points) {
   return computeVectorTableOptimized(points);
 }
 
+// ---- SIAR: Sliding Window SIA ----
+
+function estimateWindowSize(sortedPoints) {
+  if (sortedPoints.length < 2) return 10;
+  const timeSpan = sortedPoints[sortedPoints.length - 1].t - sortedPoints[0].t;
+  if (timeSpan <= 0) return 50;
+  const density = sortedPoints.length / Math.max(1, timeSpan / 96);
+  return Math.ceil(Math.max(10, Math.min(density * 2, 100)));
+}
+
+function computeVectorTableSIAR(points, R, maxVectors) {
+  const n = points.length;
+  if (n < 2) return [];
+  const sorted = [...points].sort((a, b) => a.t - b.t || a.p - b.p);
+  if (R == null) R = estimateWindowSize(sorted);
+  R = Math.max(10, Math.min(R, Math.floor(n * 0.15)));
+  const estimatedVectors = Math.min(n * R, (n * (n - 1)) / 2);
+  const cap = maxVectors ? Math.min(estimatedVectors, maxVectors) : estimatedVectors;
+  const dxArray = new Int32Array(cap);
+  const dyArray = new Int16Array(cap);
+  const fromIdx = new Uint32Array(cap);
+  const toIdx = new Uint32Array(cap);
+  var count = 0;
+  for (var i = 0; i < n && count < cap; i++) {
+    var end = Math.min(i + R + 1, n);
+    for (var j = i + 1; j < end && count < cap; j++) {
+      dxArray[count] = sorted[j].t - sorted[i].t;
+      dyArray[count] = sorted[j].p - sorted[i].p;
+      fromIdx[count] = i;
+      toIdx[count] = j;
+      count++;
+    }
+  }
+  var indices = new Uint32Array(count);
+  for (var i2 = 0; i2 < count; i2++) indices[i2] = i2;
+  indices.sort(function(a, b) {
+    var ddx = dxArray[a] - dxArray[b];
+    return ddx !== 0 ? ddx : dyArray[a] - dyArray[b];
+  });
+  var mtps = [];
+  var start = 0;
+  for (var i3 = 1; i3 <= count; i3++) {
+    var isLast = i3 === count;
+    var isDiff = !isLast && (dxArray[indices[i3]] !== dxArray[indices[start]] || dyArray[indices[i3]] !== dyArray[indices[start]]);
+    if (isLast || isDiff) {
+      var pointSet = new Set();
+      for (var k = start; k < i3; k++) {
+        pointSet.add(sorted[fromIdx[indices[k]]]);
+        pointSet.add(sorted[toIdx[indices[k]]]);
+      }
+      if (pointSet.size >= MIN_MTP_SIZE) {
+        mtps.push({ vector: { dx: dxArray[indices[start]], dy: dyArray[indices[start]] }, points: Array.from(pointSet) });
+      }
+      start = i3;
+    }
+  }
+  mtps.sort(function(a, b) { return b.points.length - a.points.length; });
+  return mtps;
+}
+
 // ---- Integer Key Spatial Index ----
 
 function buildSpatialIndex(points, timeBits, pitchBits) {
@@ -245,6 +305,7 @@ function calculateCompactness(segment) {
 
 exports.notesToPoints = notesToPoints;
 exports.computeVectorTable = computeVectorTable;
+exports.computeVectorTableSIAR = computeVectorTableSIAR;
 exports.extractContiguousSegments = extractContiguousSegments;
 exports.findAllOccurrences = findAllOccurrences;
 exports.buildSpatialIndex = buildSpatialIndex;
@@ -256,12 +317,15 @@ exports.calculateCompactness = calculateCompactness;
 //  Inlined cosiatec.js (optimized v2)
 // ============================================================
 const {
-  notesToPoints, computeVectorTable, extractContiguousSegments,
+  notesToPoints, computeVectorTable, computeVectorTableSIAR,
+  extractContiguousSegments,
   findAllOccurrences, buildSpatialIndex, lookupSpatialIndex, calculateCompactness,
 } = SIA_MODULE;
 
 const MAX_NOTES = 5000;
 const MAX_MTP_CANDIDATES = 300;
+const MAX_VECTOR_PAIRS_WORKER = 80000;
+const SIAR_THRESHOLD = 3000;
 
 // ---- Fast Lookup Maps ----
 
@@ -304,6 +368,103 @@ function scoreCandidate(candidate, opts) {
   return coverage * ratio * (1 + compactness * 2);
 }
 
+// ---- RRT: Redundant Translator Removal ----
+
+function removeRedundantTranslators(occurrences) {
+  if (occurrences.length <= 1) return occurrences;
+  var essential = [];
+  var coveredSets = new Map();
+  for (var i = 0; i < occurrences.length; i++) {
+    var occ = occurrences[i];
+    var sig = occ.noteIds.slice().sort(function(a,b){return a-b;}).join(',');
+    var existing = coveredSets.get(sig);
+    if (!existing) {
+      coveredSets.set(sig, { occurrence: occ, noteCount: occ.noteIds.length });
+      essential.push(occ);
+    } else if (occ.noteIds.length > existing.noteCount) {
+      var idx = essential.indexOf(existing.occurrence);
+      if (idx >= 0) essential[idx] = occ;
+      coveredSets.set(sig, { occurrence: occ, noteCount: occ.noteIds.length });
+    }
+  }
+  return essential;
+}
+
+function applyRRTToResult(patterns) {
+  return patterns.map(function(p) {
+    var origOcc = null;
+    var transOccs = [];
+    for (var i = 0; i < p.occurrences.length; i++) {
+      var o = p.occurrences[i];
+      if (o.dx === 0 && o.dy === 0) origOcc = o;
+      else transOccs.push(o);
+    }
+    var dedupedTrans = removeRedundantTranslators(transOccs);
+    var result = origOcc ? [origOcc].concat(dedupedTrans) : dedupedTrans;
+    return Object.assign({}, p, { occurrences: result });
+  });
+}
+
+// ---- Rhythmic Fingerprint (SIARCT-CFP) ----
+
+function computeRhythmicFingerprint(notes) {
+  if (notes.length < 2) return [];
+  var sorted = notes.slice().sort(function(a,b){return a.start - b.start;});
+  var iois = [];
+  for (var i = 1; i < sorted.length; i++) {
+    iois.push(sorted[i].start - sorted[i-1].start);
+  }
+  var base = iois[0] || 1;
+  return iois.map(function(ioi){return Math.round((ioi/base)*100)/100;});
+}
+
+function fingerprintsMatch(fp1, fp2, tolerance) {
+  tolerance = tolerance || 0.15;
+  if (fp1.length !== fp2.length) return false;
+  for (var i = 0; i < fp1.length; i++) {
+    if (Math.abs(fp1[i] - fp2[i]) > tolerance) return false;
+  }
+  return true;
+}
+
+function checkPitchContour(seq1, seq2, pitchTol) {
+  pitchTol = pitchTol || 0;
+  if (seq1.length !== seq2.length) return false;
+  for (var i = 1; i < seq1.length; i++) {
+    var p1 = seq1[i].p ?? seq1[i].pitch;
+    var p0 = seq1[i-1].p ?? seq1[i-1].pitch;
+    var q1 = seq2[i].p ?? seq2[i].pitch;
+    var q0 = seq2[i-1].p ?? seq2[i-1].pitch;
+    var d1 = p1 - p0;
+    var d2 = q1 - q0;
+    if (Math.sign(d1) !== Math.sign(d2)) return false;
+    if (Math.abs(Math.abs(d1) - Math.abs(d2)) > pitchTol) return false;
+  }
+  return true;
+}
+
+function findOccurrencesByFingerprint(pattern, allNotes, pitchTol, timeScaleTol) {
+  pitchTol = pitchTol || 0;
+  timeScaleTol = timeScaleTol || 0.2;
+  if (pattern.length < 2) return [];
+  var patternFp = computeRhythmicFingerprint(pattern);
+  if (patternFp.length === 0) return [];
+  var occurrences = [];
+  var sortedAll = allNotes.slice().sort(function(a,b){return a.start - b.start;});
+  for (var i = 0; i <= sortedAll.length - pattern.length; i++) {
+    var candidate = sortedAll.slice(i, i + pattern.length);
+    if (!checkPitchContour(pattern, candidate, pitchTol)) continue;
+    var candidateFp = computeRhythmicFingerprint(candidate);
+    if (!fingerprintsMatch(patternFp, candidateFp, timeScaleTol)) continue;
+    var dx = candidate[0].start - (pattern[0].start ?? pattern[0].t ?? 0);
+    var dy = (candidate[0].pitch ?? candidate[0].p) - (pattern[0].pitch ?? pattern[0].p ?? 0);
+    var noteIndices = [];
+    for (var j = 0; j < candidate.length; j++) noteIndices.push(i + j);
+    occurrences.push({ dx: dx, dy: dy, startIdx: i, noteIndices: noteIndices });
+  }
+  return occurrences;
+}
+
 // ---- Main COSIATEC ----
 
 function cosiatecCompress(notes, ppq, opts) {
@@ -336,7 +497,10 @@ function cosiatecCompress(notes, ppq, opts) {
     const points = notesToPoints(remainingNotes);
     const spatialIndex = buildSpatialIndex(points);
     const candidates = [];
-    const mtps = computeVectorTable(points);
+    const useSIAR = remainingNotes.length > SIAR_THRESHOLD;
+    const mtps = useSIAR
+      ? computeVectorTableSIAR(points, null, MAX_VECTOR_PAIRS_WORKER)
+      : computeVectorTable(points);
     const mtpLimit = Math.min(mtps.length, MAX_MTP_CANDIDATES);
     const seenSegments = new Set();
 
@@ -400,6 +564,35 @@ function cosiatecCompress(notes, ppq, opts) {
             const candidate = { segment, occurrences: occs, totalInstances, coverage, ratio, score: 0, round, source: 'scan' };
             candidate.score = scoreCandidate(candidate, { minCompactness: minCompactness });
             if (candidate.score > -Infinity) candidates.push(candidate);
+          }
+        }
+      }
+    }
+
+    // ---- Phase C: Fingerprint-based discovery ----
+    if (round === 1 && opts.useFingerprint && remainingNotes.length >= minLen * 2) {
+      var sortedNotesFp = remainingNotes.slice().sort(function(a,b){return a.start - b.start;});
+      var maxFingerprintScans = Math.min(sortedNotesFp.length, 100);
+      for (var fpIdx = 0; fpIdx < maxFingerprintScans; fpIdx++) {
+        var fpSegment = [sortedNotesFp[fpIdx]];
+        for (var fpJ = fpIdx + 1; fpJ < sortedNotesFp.length && fpSegment.length < maxLen; fpJ++) {
+          var fpGap = sortedNotesFp[fpJ].start - fpSegment[fpSegment.length - 1].start;
+          if (fpGap > ppq * 4) break;
+          fpSegment.push(sortedNotesFp[fpJ]);
+          if (fpSegment.length >= minLen) {
+            var fpSegKey = fpSegment.map(function(n){return sortedNotesFp.indexOf(n);}).sort().join(',');
+            if (seenSegments.has(fpSegKey)) continue;
+            seenSegments.add(fpSegKey);
+            var fpOccs = findOccurrencesByFingerprint(fpSegment, remainingNotes, pTol, 0.2);
+            var fpTotalInstances = fpOccs.length + 1;
+            if (fpTotalInstances < minOcc) continue;
+            var fpCoverage = fpSegment.length * fpTotalInstances;
+            var fpCost = fpSegment.length + fpOccs.length * 2;
+            var fpRatio = fpCoverage / Math.max(1, fpCost);
+            if (fpRatio < minRatio) continue;
+            var fpCandidate = { segment: fpSegment, occurrences: fpOccs, totalInstances: fpTotalInstances, coverage: fpCoverage, ratio: fpRatio, score: 0, round: round, source: 'fingerprint' };
+            fpCandidate.score = scoreCandidate(fpCandidate, { minCompactness: minCompactness });
+            if (fpCandidate.score > -Infinity) candidates.push(fpCandidate);
           }
         }
       }
@@ -476,18 +669,25 @@ function cosiatecCompress(notes, ppq, opts) {
   }
 
   const trunk = remainingNotes;
+
+  // Apply RRT
+  var finalPatterns = allPatterns;
+  if (opts.useRRT !== false) {
+    finalPatterns = applyRRTToResult(allPatterns);
+  }
+
   const totalNotes = notes.length;
   const coveredByPatterns = totalNotes - trunk.length;
-  const patternDefSize = allPatterns.reduce(function(s, p) { return s + p.notes.length; }, 0);
-  const instanceRefSize = allPatterns.reduce(function(s, p) { return s + p.occurrences.length; }, 0);
+  const patternDefSize = finalPatterns.reduce(function(s, p) { return s + p.notes.length; }, 0);
+  const instanceRefSize = finalPatterns.reduce(function(s, p) { return s + p.occurrences.length; }, 0);
   const compressedSize = trunk.length + patternDefSize + instanceRefSize * 2;
   const compressionRate = totalNotes > 0 ? (1 - compressedSize / totalNotes) * 100 : 0;
 
   return {
-    patterns: allPatterns, trunk, compressionRate,
+    patterns: finalPatterns, trunk, compressionRate,
     coverage: totalNotes > 0 ? coveredByPatterns / totalNotes : 0,
     totalNotes, patternNotes: coveredByPatterns,
-    instanceCount: allPatterns.reduce(function(s, p) { return s + p.occurrences.length; }, 0),
+    instanceCount: finalPatterns.reduce(function(s, p) { return s + p.occurrences.length; }, 0),
     rounds: round, wasDownsampled: false,
   };
 }
@@ -593,6 +793,8 @@ self.onmessage = function(e) {
         maxPatterns: Math.min(opts.maxPatterns || 6, 6),
         minRatio: opts.minRatio || 1.5,
         iterative: opts.iterative !== false,
+        useFingerprint: opts.useFingerprint || false,
+        useRRT: opts.useRRT !== false,
         onProgress: function(phase, detail) {
           self.postMessage({ type: 'progressive-progress', stage: 'standard', phase: phase, detail: detail });
         },
@@ -628,7 +830,8 @@ self.onmessage = function(e) {
 
   if (type === 'analyze') {
     try {
-      const result = cosiatecCompress(notes, ppq, {
+      // SIATECCOMPRESS fast mode: single non-iterative pass
+      var analyzeOpts = {
         minLen: opts.minLen,
         maxLen: opts.maxLen,
         minOcc: opts.minOcc,
@@ -637,11 +840,16 @@ self.onmessage = function(e) {
         maxPatterns: opts.maxPatterns,
         minRatio: opts.minRatio,
         detectTrans: opts.detectTrans,
-        iterative: opts.iterative,
+        iterative: opts.algorithm === 'siateccompress' ? false : opts.iterative,
+        useFingerprint: opts.useFingerprint || false,
+        useRRT: opts.useRRT !== false,
         onProgress: function(phase, detail) {
           self.postMessage({ type: 'progress', phase: phase, detail: detail });
         },
-      });
+      };
+      const result = cosiatecCompress(notes, ppq, analyzeOpts);
+      // Tag result with algorithm
+      if (opts.algorithm === 'siateccompress') result.algorithm = 'siateccompress';
       self.postMessage({ type: 'result', result: result });
     } catch (err) {
       self.postMessage({ type: 'error', message: err.message });

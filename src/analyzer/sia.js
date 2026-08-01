@@ -524,3 +524,123 @@ export function calculateCompactness(segment) {
 
   return area > 0 ? segment.length / area : 1;
 }
+
+// ---- SIAR: Sliding Window Vector Computation ----
+
+/**
+ * SIAR: SIA with sliding window of size R.
+ *
+ * Only computes vectors from each point to the next R points lexicographically
+ * (sorted by time, then pitch). This reduces complexity from O(n²) to O(n·R),
+ * typically reducing vector count by 95-99% for large datasets.
+ *
+ * Based on Collins (2011), "Improved methods for pattern discovery in music".
+ *
+ * @param {object[]} points  - Sorted points {t, p}
+ * @param {number}   [R]     - Window size (null = auto-detect from note density)
+ * @param {number}   [maxVectors] - Optional cap on total vectors
+ * @returns {object[]} MTPs sorted by size descending
+ */
+export function computeVectorTableSIAR(points, R = null, maxVectors = null) {
+  const n = points.length;
+  if (n < 2) return [];
+
+  const sorted = [...points].sort((a, b) => a.t - b.t || a.p - b.p);
+
+  // Auto-determine R based on musical context:
+  // R = average notes per "measure" (96 ticks) × 2 measures lookahead
+  if (R === null) {
+    R = estimateWindowSize(sorted);
+  }
+  R = Math.max(10, Math.min(R, Math.floor(n * 0.15)));
+
+  const estimatedVectors = Math.min(n * R, (n * (n - 1)) / 2);
+  const cap = maxVectors ? Math.min(estimatedVectors, maxVectors) : estimatedVectors;
+
+  // Parallel TypedArrays
+  const dxArray = new Int32Array(cap);
+  const dyArray = new Int16Array(cap);
+  const fromIdx = new Uint32Array(cap);
+  const toIdx = new Uint32Array(cap);
+
+  let count = 0;
+  for (let i = 0; i < n && count < cap; i++) {
+    // Only compute vectors to next R points (not all n-i-1)
+    const end = Math.min(i + R + 1, n);
+    for (let j = i + 1; j < end && count < cap; j++) {
+      dxArray[count] = sorted[j].t - sorted[i].t;
+      dyArray[count] = sorted[j].p - sorted[i].p;
+      fromIdx[count] = i;
+      toIdx[count] = j;
+      count++;
+    }
+  }
+
+  // Sort indices by (dx, dy) lexicographically
+  const indices = new Uint32Array(count);
+  for (let i = 0; i < count; i++) indices[i] = i;
+
+  indices.sort((a, b) => {
+    const ddx = dxArray[a] - dxArray[b];
+    return ddx !== 0 ? ddx : dyArray[a] - dyArray[b];
+  });
+
+  // Scan groups: identical (dx, dy) → MTP
+  const mtps = [];
+  let start = 0;
+
+  for (let i = 1; i <= count; i++) {
+    const isLast = i === count;
+    const isDifferent = !isLast && (
+      dxArray[indices[i]] !== dxArray[indices[start]] ||
+      dyArray[indices[i]] !== dyArray[indices[start]]
+    );
+
+    if (isLast || isDifferent) {
+      const pointSet = new Set();
+      for (let k = start; k < i; k++) {
+        pointSet.add(sorted[fromIdx[indices[k]]]);
+        pointSet.add(sorted[toIdx[indices[k]]]);
+      }
+      if (pointSet.size >= MIN_MTP_SIZE) {
+        mtps.push({
+          vector: {
+            dx: dxArray[indices[start]],
+            dy: dyArray[indices[start]],
+          },
+          points: Array.from(pointSet),
+        });
+      }
+      start = i;
+    }
+  }
+
+  mtps.sort((a, b) => b.points.length - a.points.length);
+  return mtps;
+}
+
+/**
+ * Estimate a sensible window size R based on note density.
+ *
+ * For a typical 4/4 measure at 96 ticks/quarter:
+ *   - Low density (< 1 note/tick): R ≈ n/8 (look ahead 1/8 of the piece)
+ *   - Medium density: R ≈ avg notes per 2 measures
+ *   - High density: cap at 100
+ *
+ * @param {object[]} sortedPoints - Points sorted by time
+ * @returns {number} Estimated window size
+ */
+function estimateWindowSize(sortedPoints) {
+  if (sortedPoints.length < 2) return 10;
+
+  const timeSpan = sortedPoints[sortedPoints.length - 1].t - sortedPoints[0].t;
+  if (timeSpan <= 0) return 50;
+
+  // Notes per 96 ticks (approximate measure in 4/4)
+  const density = sortedPoints.length / Math.max(1, timeSpan / 96);
+
+  // R = density × 2 measures worth of notes
+  const r = Math.ceil(Math.max(10, Math.min(density * 2, 100)));
+
+  return r;
+}

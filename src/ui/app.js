@@ -244,6 +244,9 @@ function analyze() {
     minRatio: parseFloat(document.getElementById('minRatio').value),
     detectTrans: document.getElementById('detectTrans').checked,
     iterative: document.getElementById('iterative').checked,
+    algorithm: document.getElementById('fastMode')?.checked ? 'siateccompress' : 'cosiatec',
+    useFingerprint: document.getElementById('useFingerprint')?.checked || false,
+    useRRT: true,
   };
 
   // Check cache first
@@ -519,6 +522,9 @@ function autoOptimize() {
       timeTol: parseInt(document.getElementById('timeTol').value),
       detectTrans: document.getElementById('detectTrans').checked,
       iterative: document.getElementById('iterative').checked,
+      algorithm: document.getElementById('fastMode')?.checked ? 'siateccompress' : 'cosiatec',
+      useFingerprint: document.getElementById('useFingerprint')?.checked || false,
+      useRRT: true,
     },
     maxTests: MAX_TESTS,
   });

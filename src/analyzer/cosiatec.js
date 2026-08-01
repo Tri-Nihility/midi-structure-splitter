@@ -24,17 +24,23 @@
 import {
   notesToPoints,
   computeVectorTable,
+  computeVectorTableSIAR,
   extractContiguousSegments,
   findAllOccurrences,
   buildSpatialIndex,
   lookupSpatialIndex,
   calculateCompactness,
 } from './sia.js';
+import { applyRRTToResult } from './rrt.js';
+import { findOccurrencesByFingerprint } from './fingerprint.js';
 
 // ---- Configuration ----
 
 const MAX_NOTES = 5000;
 const MAX_MTP_CANDIDATES = 300;
+const MAX_VECTOR_PAIRS = 80000;
+/** Notes threshold above which SIAR (sliding window) is used instead of full SIA. */
+const SIAR_THRESHOLD = 3000;
 
 // ---- Fast Lookup Maps (O(1) instead of O(n) findIndex) ----
 
@@ -192,7 +198,11 @@ export function cosiatecCompress(notes, ppq, opts = {}) {
     const candidates = [];
 
     // ---- Phase A: MTP-based discovery ----
-    const mtps = computeVectorTable(points);
+    // Auto-switch to SIAR (sliding window) for large datasets (>3000 notes)
+    const useSIAR = remainingNotes.length > SIAR_THRESHOLD;
+    const mtps = useSIAR
+      ? computeVectorTableSIAR(points, null /* auto R */, MAX_VECTOR_PAIRS)
+      : computeVectorTable(points);
 
     // Only examine top MTPs (largest point sets)
     const mtpLimit = Math.min(mtps.length, MAX_MTP_CANDIDATES);
@@ -333,6 +343,58 @@ export function cosiatecCompress(notes, ppq, opts = {}) {
       }
     }
 
+    // ---- Phase C: Fingerprint-based discovery (catches time-scaled variants) ----
+    // Only in first round to avoid redundancy, and only if explicitly enabled
+    if (round === 1 && opts.useFingerprint && remainingNotes.length >= minLen * 2) {
+      const sortedNotes = [...remainingNotes].sort((a, b) => a.start - b.start);
+      const maxFingerprintScans = Math.min(sortedNotes.length, 100);
+
+      for (let startIdx = 0; startIdx < maxFingerprintScans; startIdx++) {
+        const segment = [sortedNotes[startIdx]];
+        for (let j = startIdx + 1; j < sortedNotes.length && segment.length < maxLen; j++) {
+          const gap = sortedNotes[j].start - segment[segment.length - 1].start;
+          if (gap > ppq * 4) break;
+          segment.push(sortedNotes[j]);
+
+          if (segment.length >= minLen) {
+            const segKey = segment.map(n => sortedNotes.indexOf(n)).sort().join(',');
+            if (seenSegments.has(segKey)) continue;
+            seenSegments.add(segKey);
+
+            // Try fingerprint-based matching with time-scale tolerance
+            const fpOccs = findOccurrencesByFingerprint(
+              segment, remainingNotes, pTol, 0.2
+            );
+            const totalInstances = fpOccs.length + 1;
+
+            if (totalInstances < minOcc) continue;
+
+            const coverage = segment.length * totalInstances;
+            const cost = segment.length + fpOccs.length * 2;
+            const ratio = coverage / Math.max(1, cost);
+
+            if (ratio < minRatio) continue;
+
+            const candidate = {
+              segment,
+              occurrences: fpOccs,
+              totalInstances,
+              coverage,
+              ratio,
+              score: 0,
+              round,
+              source: 'fingerprint',
+            };
+            candidate.score = scoreCandidate(candidate, { minCompactness });
+
+            if (candidate.score > -Infinity) {
+              candidates.push(candidate);
+            }
+          }
+        }
+      }
+    }
+
     // ---- Select best candidate ----
     if (candidates.length === 0) break;
 
@@ -438,25 +500,55 @@ export function cosiatecCompress(notes, ppq, opts = {}) {
 
   // ---- Results ----
   const trunk = remainingNotes;
+
+  // Apply RRT (Removal of Redundant Translators) if enabled
+  const useRRT = opts.useRRT !== false; // Enabled by default
+  const finalPatterns = useRRT ? applyRRTToResult(allPatterns) : allPatterns;
+
   const totalNotes = notes.length;
   const coveredByPatterns = totalNotes - trunk.length;
-  const patternDefSize = allPatterns.reduce((s, p) => s + p.notes.length, 0);
-  const instanceRefSize = allPatterns.reduce((s, p) => s + p.occurrences.length, 0);
+  const patternDefSize = finalPatterns.reduce((s, p) => s + p.notes.length, 0);
+  const instanceRefSize = finalPatterns.reduce((s, p) => s + p.occurrences.length, 0);
   const compressedSize = trunk.length + patternDefSize + instanceRefSize * 2;
   const compressionRate =
     totalNotes > 0 ? (1 - compressedSize / totalNotes) * 100 : 0;
 
-  onProgress('done', { compressionRate, patterns: allPatterns.length });
+  onProgress('done', { compressionRate, patterns: finalPatterns.length });
 
   return {
-    patterns: allPatterns,
+    patterns: finalPatterns,
     trunk,
     compressionRate,
     coverage: totalNotes > 0 ? coveredByPatterns / totalNotes : 0,
     totalNotes,
     patternNotes: coveredByPatterns,
-    instanceCount: allPatterns.reduce((s, p) => s + p.occurrences.length, 0),
+    instanceCount: finalPatterns.reduce((s, p) => s + p.occurrences.length, 0),
     rounds: round,
     wasDownsampled: false,
   };
+}
+
+// ---- Unified Compress Dispatcher ----
+
+import { siatecCompress } from './siatec-compress.js';
+
+/**
+ * Unified entry point: dispatches to COSIATEC or SIATECCOMPRESS
+ * based on opts.algorithm.
+ *
+ * @param {object[]} notes - All note objects
+ * @param {number}   ppq   - Pulses per quarter note
+ * @param {object}   opts  - Algorithm options (algorithm: 'cosiatec'|'siateccompress')
+ * @returns {object} Compression result
+ */
+export function compress(notes, ppq, opts = {}) {
+  const algorithm = opts.algorithm || 'cosiatec';
+
+  switch (algorithm) {
+    case 'siateccompress':
+      return siatecCompress(notes, ppq, opts);
+    case 'cosiatec':
+    default:
+      return cosiatecCompress(notes, ppq, opts);
+  }
 }
