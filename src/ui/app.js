@@ -630,8 +630,15 @@ function loadDemo() {
  * Initialize all event listeners and drag-and-drop handlers.
  */
 export function initApp() {
-  // Drag-and-drop
+  // Drag-and-drop + click to open file picker
   const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+
+  // Click on dropzone triggers hidden file input
+  dropzone.addEventListener('click', () => {
+    fileInput.click();
+  });
+
   ['dragenter', 'dragover', 'dragleave', 'drop'].forEach((eventName) => {
     dropzone.addEventListener(eventName, (ev) => {
       ev.preventDefault();
@@ -651,8 +658,8 @@ export function initApp() {
     }
   });
 
-  // File input
-  document.getElementById('fileInput').addEventListener('change', (e) => {
+  // File input change handler
+  fileInput.addEventListener('change', (e) => {
     if (e.target.files.length) processFile(e.target.files[0]);
   });
 
