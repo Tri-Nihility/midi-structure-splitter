@@ -203,37 +203,35 @@ function analyze() {
 
 /**
  * Parameter grid for auto-optimization search.
- * Each entry is [paramKey, candidateValues].
+ * Keep it small — each dimension's values multiply into total combos.
+ * With 6 dimensions of 3-4 values each, max ~ 3×3×2×2×3×2 ≈ 216.
  */
 const PARAM_GRID = {
-  minLen:       [3, 4, 5, 6, 8],
-  maxLen:       [12, 16, 24, 32, 48, 64],
-  minOcc:       [2, 3, 4],
-  pitchTol:     [0, 1, 2],
-  maxPatterns:  [3, 4, 5, 6, 8],
-  minRatio:     [1.5, 2.0, 2.5],
+  minLen:       [4, 6, 8],
+  maxLen:       [16, 32, 64],
+  minOcc:       [2, 3],
+  pitchTol:     [0, 2],
+  maxPatterns:  [4, 6, 8],
+  minRatio:     [1.5, 2.0],
 };
 
+/** Hard cap on total tests to prevent runaway. */
+const MAX_TESTS = 200;
+
 /**
- * Generate all combinations of parameter grid values.
- * Uses a pruned search: evaluates coarse grid first, then refines
- * around the best region.
+ * Generate all combinations. Always returns all combos (no coarse/fine split).
  */
-function* generateParamCombos(coarse) {
+function* generateParamCombos() {
   const keys = Object.keys(PARAM_GRID);
   const values = keys.map(k => PARAM_GRID[k]);
-
-  // For coarse mode, use every-other value
-  const step = coarse ? 2 : 1;
 
   function* cartesian(idx, current) {
     if (idx === keys.length) {
       yield { ...current };
       return;
     }
-    const vals = values[idx];
-    for (let i = 0; i < vals.length; i += step) {
-      current[keys[idx]] = vals[i];
+    for (const v of values[idx]) {
+      current[keys[idx]] = v;
       yield* cartesian(idx + 1, current);
     }
   }
@@ -242,13 +240,12 @@ function* generateParamCombos(coarse) {
 }
 
 /**
- * Count total combinations for progress display.
+ * Count total combinations.
  */
-function countCombos(coarse) {
-  const step = coarse ? 2 : 1;
+function countCombos() {
   let total = 1;
   for (const vals of Object.values(PARAM_GRID)) {
-    total *= Math.ceil(vals.length / step);
+    total *= vals.length;
   }
   return total;
 }
@@ -279,8 +276,8 @@ function runSingle(params) {
 }
 
 /**
- * Auto-optimize: search parameter grid for best compression.
- * Two-phase: coarse scan -> fine scan around best region.
+ * Auto-optimize: scan the parameter grid for best compression.
+ * Yields to the browser event loop after EVERY test to keep the UI responsive.
  */
 async function autoOptimize() {
   if (!currentData) {
@@ -299,20 +296,19 @@ async function autoOptimize() {
   btnAuto.textContent = '优化中...';
   btnCancel.style.display = 'block';
 
-  const totalCoarse = countCombos(true);
-  const totalFine = countCombos(false);
-  const totalCombos = totalCoarse + totalFine;
+  const total = Math.min(countCombos(), MAX_TESTS);
 
-  showStatus(`开始自动优化: 粗扫 ${totalCoarse} + 精扫 ${totalFine} = ${totalCombos} 组合`, 'success');
+  showStatus(`开始自动优化: 最多 ${total} 组合`, 'success');
 
   let bestResult = null;
   let tested = 0;
 
   try {
-    // ---- Phase 1: Coarse scan ----
-    for (const params of generateParamCombos(true)) {
+    for (const params of generateParamCombos()) {
       if (signal.aborted) throw new Error('已取消');
+      if (tested >= MAX_TESTS) break;
 
+      // Run one test
       const result = runSingle(params);
       tested++;
 
@@ -320,38 +316,18 @@ async function autoOptimize() {
         bestResult = result;
       }
 
-      // Update progress
-      const pct = Math.round((tested / totalCombos) * 100);
+      // Update UI
+      const pct = Math.round((tested / total) * 100);
       setProgress(pct);
-      btnAuto.textContent = `粗扫 ${tested}/${totalCoarse}`;
+      btnAuto.textContent = `测试 ${tested}/${total} (最佳 ${bestResult.compressionRate.toFixed(1)}%)`;
 
-      // Yield to UI every few iterations
-      if (tested % 10 === 0) {
-        await new Promise(r => setTimeout(r, 0));
-      }
+      // Yield to browser after EVERY test — keep UI alive
+      await new Promise(r => setTimeout(r, 0));
     }
 
-    // ---- Phase 2: Fine scan around best coarse params ----
-    // Build a narrower grid around the best values found so far
-    const fineGrid = buildFineGrid(bestResult.params);
-
-    for (const params of fineGrid) {
-      if (signal.aborted) throw new Error('已取消');
-
-      const result = runSingle(params);
-      tested++;
-
-      if (result.compressionRate > bestResult.compressionRate) {
-        bestResult = result;
-      }
-
-      const pct = Math.round((tested / totalCombos) * 100);
-      setProgress(pct);
-      btnAuto.textContent = `精扫 ${tested - totalCoarse}/${totalFine}`;
-
-      if (tested % 10 === 0) {
-        await new Promise(r => setTimeout(r, 0));
-      }
+    if (!bestResult) {
+      showStatus('未找到有效参数组合', 'error');
+      return;
     }
 
     // ---- Apply best result ----
@@ -371,7 +347,7 @@ async function autoOptimize() {
       }
     );
 
-    // Update parameter inputs to best values
+    // Update parameter inputs
     document.getElementById('minLen').value = bestResult.params.minLen;
     document.getElementById('maxLen').value = bestResult.params.maxLen;
     document.getElementById('minOcc').value = bestResult.params.minOcc;
@@ -413,45 +389,6 @@ async function autoOptimize() {
     btnCancel.style.display = 'none';
     abortController = null;
   }
-}
-
-/**
- * Build a fine-grained parameter grid around the best coarse result.
- * Narrows each parameter to neighbors of the best value.
- */
-function buildFineGrid(bestParams) {
-  const fine = {};
-  for (const [key, allVals] of Object.entries(PARAM_GRID)) {
-    const bestVal = bestParams[key];
-    const idx = allVals.indexOf(bestVal);
-    if (idx === -1) {
-      fine[key] = allVals;
-    } else {
-      // Take best value and its immediate neighbors
-      const neighbors = [];
-      if (idx > 0) neighbors.push(allVals[idx - 1]);
-      neighbors.push(allVals[idx]);
-      if (idx < allVals.length - 1) neighbors.push(allVals[idx + 1]);
-      fine[key] = neighbors;
-    }
-  }
-
-  // Generate all combos from the fine grid
-  const keys = Object.keys(fine);
-  const values = keys.map(k => fine[k]);
-
-  function* cartesian(idx, current) {
-    if (idx === keys.length) {
-      yield { ...current };
-      return;
-    }
-    for (const v of values[idx]) {
-      current[keys[idx]] = v;
-      yield* cartesian(idx + 1, current);
-    }
-  }
-
-  return cartesian(0, {});
 }
 
 /**
