@@ -8,7 +8,6 @@
  */
 
 import { MidiParser, midiToNotes } from '../parser/midi-parser.js';
-import { cosiatecCompress } from '../analyzer/cosiatec.js';
 import { generateXML, escapeXml } from '../utils/xml-generator.js';
 import {
   renderReconstruction,
@@ -30,8 +29,11 @@ let currentResult = null;
 /** @type {string} Base filename for exports */
 let currentFileName = 'midi';
 
-/** Abort controller for cancellation */
-let abortController = null;
+/** @type {Worker|null} Web Worker for background computation */
+let worker = null;
+
+/** @type {number} Animation frame ID for progress bar pulse */
+let progressAnimId = null;
 
 // ---- File Handling ----
 
@@ -95,31 +97,93 @@ function processFile(file) {
   reader.readAsArrayBuffer(file);
 }
 
+// ---- Web Worker Management ----
+
+/**
+ * Get or create the Web Worker. Reuses existing worker if available.
+ * @returns {Worker}
+ */
+function getWorker() {
+  if (!worker) {
+    worker = new Worker('worker.js');
+  }
+  return worker;
+}
+
+/**
+ * Terminate and reset the worker.
+ */
+function killWorker() {
+  if (worker) {
+    worker.terminate();
+    worker = null;
+  }
+}
+
 // ---- Analysis ----
 
 /**
- * Run COSIATEC compression analysis with yield-based chunking to prevent UI freeze.
- * Uses requestAnimationFrame to yield control back to the browser between rounds.
+ * Run COSIATEC analysis via Web Worker to keep UI responsive.
+ * Shows an animated progress bar while computing.
  */
 function analyze() {
   if (!currentData) return;
 
   const btn = document.getElementById('btnAnalyze');
   btn.disabled = true;
-  btn.textContent = 'COSIATEC分析中...';
-  setProgress(10);
+  btn.textContent = '分析中...';
 
-  // Safety: warn for large files
-  if (currentData.notes.length > 2000) {
-    showStatus(
-      `注意: ${currentData.notes.length} 个音符较多，分析可能需要较长时间。已启用性能优化模式。`,
-      'success'
-    );
-  }
+  // Kill any previous worker
+  killWorker();
+
+  // Show animated progress bar
+  startProgressAnimation();
+
+  const w = getWorker();
+
+  w.onmessage = (e) => {
+    const { type, phase, detail, result } = e.data;
+
+    if (type === 'progress') {
+      if (phase === 'start') {
+        updateProgress(15);
+      } else if (phase === 'round') {
+        updateProgress(15 + Math.min(60, detail.round * 15));
+        btn.textContent = `轮次 ${detail.round}...`;
+      } else if (phase === 'pattern') {
+        updateProgress(60 + detail.round * 5);
+      }
+    }
+
+    if (type === 'result') {
+      stopProgressAnimation();
+      setProgress(100);
+      currentResult = result;
+      finishAnalysis(result, btn);
+    }
+
+    if (type === 'error') {
+      stopProgressAnimation();
+      setProgress(0);
+      showStatus('分析失败: ' + e.data.message, 'error');
+      btn.disabled = false;
+      btn.textContent = '压缩分析';
+    }
+  };
+
+  w.onerror = (err) => {
+    stopProgressAnimation();
+    setProgress(0);
+    showStatus('Worker 错误', 'error');
+    btn.disabled = false;
+    btn.textContent = '压缩分析';
+    console.error('Worker error:', err);
+  };
 
   const opts = {
     minLen: parseInt(document.getElementById('minLen').value),
     maxLen: parseInt(document.getElementById('maxLen').value),
+    maxOcc: parseInt(document.getElementById('minOcc').value),
     minOcc: parseInt(document.getElementById('minOcc').value),
     pitchTol: parseInt(document.getElementById('pitchTol').value),
     timeTol: parseInt(document.getElementById('timeTol').value),
@@ -127,166 +191,51 @@ function analyze() {
     minRatio: parseFloat(document.getElementById('minRatio').value),
     detectTrans: document.getElementById('detectTrans').checked,
     iterative: document.getElementById('iterative').checked,
-    onProgress: (phase, detail) => {
-      if (phase === 'start') {
-        setProgress(15);
-      } else if (phase === 'round') {
-        const pct = 15 + Math.min(60, detail.round * 15);
-        setProgress(pct);
-        btn.textContent = `分析中... 轮次 ${detail.round}`;
-      } else if (phase === 'pattern') {
-        setProgress(60 + detail.round * 5);
-      }
-    },
   };
 
-  // Use a micro-yield pattern: schedule analysis as a chain of microtasks
-  // that each yield to the browser event loop
-  const runAsync = () => {
-    return new Promise((resolve, reject) => {
-      try {
-        setProgress(20);
-        currentResult = cosiatecCompress(
-          currentData.notes,
-          currentData.ppq,
-          opts
-        );
-        resolve();
-      } catch (err) {
-        reject(err);
-      }
-    });
-  };
+  w.postMessage({ type: 'analyze', notes: currentData.notes, ppq: currentData.ppq, opts });
+}
 
-  // Use setTimeout with 0 to let the UI update before heavy work
-  setTimeout(async () => {
-    try {
-      await runAsync();
-      setProgress(80);
+/**
+ * Finalize analysis: update stats, render views, re-enable button.
+ */
+function finishAnalysis(result, btn) {
+  updateStatistics(result);
 
-      // Update statistics panel
-      updateStatistics(currentResult);
+  const cov = Math.round(result.compressionRate);
+  document.getElementById('fitRate').textContent = cov + '%';
+  document.getElementById('fitFill').style.width = Math.min(100, cov) + '%';
 
-      // Update compression bar
-      const cov = Math.round(currentResult.compressionRate);
-      document.getElementById('fitRate').textContent = cov + '%';
-      document.getElementById('fitFill').style.width =
-        Math.min(100, cov) + '%';
+  requestAnimationFrame(() => {
+    renderReconstruction(currentData, result);
+    renderPatterns(result);
+    renderTrunk(result, currentData);
+    renderTimeline(currentData, result);
+    renderXML(currentData, result);
 
-      // Render all views (use requestAnimationFrame for DOM-heavy work)
-      requestAnimationFrame(() => {
-        renderReconstruction(currentData, currentResult);
-        renderPatterns(currentResult);
-        renderTrunk(currentResult, currentData);
-        renderTimeline(currentData, currentResult);
-        renderXML(currentData, currentResult);
+    let msg = `COSIATEC完成: ${result.patterns.length} 模式, 压缩 ${cov}%`;
+    if (result.wasDownsampled) msg += ' (已启用采样优化)';
+    showStatus(msg, 'success');
+  });
 
-        setProgress(100);
-
-        let msg = `COSIATEC完成: ${currentResult.patterns.length} 模式, 压缩 ${cov}%`;
-        if (currentResult.wasDownsampled) {
-          msg += ' (已启用采样优化)';
-        }
-        showStatus(msg, 'success');
-      });
-    } catch (err) {
-      showStatus('分析失败: ' + err.message, 'error');
-      console.error(err);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '压缩分析';
-    }
-  }, 50);
+  btn.disabled = false;
+  btn.textContent = '压缩分析';
 }
 
 // ---- Auto-Optimization ----
 
-/**
- * Parameter grid for auto-optimization search.
- * Keep it small — each dimension's values multiply into total combos.
- * With 6 dimensions of 3-4 values each, max ~ 3×3×2×2×3×2 ≈ 216.
- */
-const PARAM_GRID = {
-  minLen:       [4, 6, 8],
-  maxLen:       [16, 32, 64],
-  minOcc:       [2, 3],
-  pitchTol:     [0, 2],
-  maxPatterns:  [4, 6, 8],
-  minRatio:     [1.5, 2.0],
-};
-
-/** Hard cap on total tests to prevent runaway. */
+/** Hard cap on total tests. */
 const MAX_TESTS = 200;
 
 /**
- * Generate all combinations. Always returns all combos (no coarse/fine split).
+ * Auto-optimize: scan parameter grid for best compression.
+ * Runs entirely in Web Worker; main thread just updates the progress bar.
  */
-function* generateParamCombos() {
-  const keys = Object.keys(PARAM_GRID);
-  const values = keys.map(k => PARAM_GRID[k]);
-
-  function* cartesian(idx, current) {
-    if (idx === keys.length) {
-      yield { ...current };
-      return;
-    }
-    for (const v of values[idx]) {
-      current[keys[idx]] = v;
-      yield* cartesian(idx + 1, current);
-    }
-  }
-
-  yield* cartesian(0, {});
-}
-
-/**
- * Count total combinations.
- */
-function countCombos() {
-  let total = 1;
-  for (const vals of Object.values(PARAM_GRID)) {
-    total *= vals.length;
-  }
-  return total;
-}
-
-/**
- * Run a single COSIATEC analysis with given params, return compression rate.
- */
-function runSingle(params) {
-  const opts = {
-    minLen: params.minLen,
-    maxLen: params.maxLen,
-    minOcc: params.minOcc,
-    pitchTol: params.pitchTol,
-    timeTol: parseInt(document.getElementById('timeTol').value),
-    maxPatterns: params.maxPatterns,
-    minRatio: params.minRatio,
-    detectTrans: document.getElementById('detectTrans').checked,
-    iterative: document.getElementById('iterative').checked,
-  };
-  const result = cosiatecCompress(currentData.notes, currentData.ppq, opts);
-  return {
-    compressionRate: result.compressionRate,
-    patterns: result.patterns.length,
-    trunk: result.trunk.length,
-    rounds: result.rounds,
-    params: { ...params },
-  };
-}
-
-/**
- * Auto-optimize: scan the parameter grid for best compression.
- * Yields to the browser event loop after EVERY test to keep the UI responsive.
- */
-async function autoOptimize() {
+function autoOptimize() {
   if (!currentData) {
     showStatus('请先上传 MIDI 文件', 'error');
     return;
   }
-
-  abortController = new AbortController();
-  const signal = abortController.signal;
 
   const btnAnalyze = document.getElementById('btnAnalyze');
   const btnAuto = document.getElementById('btnAutoOptimize');
@@ -296,108 +245,124 @@ async function autoOptimize() {
   btnAuto.textContent = '优化中...';
   btnCancel.style.display = 'block';
 
-  const total = Math.min(countCombos(), MAX_TESTS);
+  killWorker();
+  startProgressAnimation();
 
-  showStatus(`开始自动优化: 最多 ${total} 组合`, 'success');
+  showStatus('开始自动优化（后台计算，页面不会卡死）', 'success');
 
-  let bestResult = null;
-  let tested = 0;
+  const w = getWorker();
 
-  try {
-    for (const params of generateParamCombos()) {
-      if (signal.aborted) throw new Error('已取消');
-      if (tested >= MAX_TESTS) break;
+  w.onmessage = (e) => {
+    const { type, tested, total, bestRate, bestParams, result } = e.data;
 
-      // Run one test
-      const result = runSingle(params);
-      tested++;
-
-      if (!bestResult || result.compressionRate > bestResult.compressionRate) {
-        bestResult = result;
-      }
-
-      // Update UI
+    if (type === 'optimize-progress') {
       const pct = Math.round((tested / total) * 100);
-      setProgress(pct);
-      btnAuto.textContent = `测试 ${tested}/${total} (最佳 ${bestResult.compressionRate.toFixed(1)}%)`;
-
-      // Yield to browser after EVERY test — keep UI alive
-      await new Promise(r => setTimeout(r, 0));
+      updateProgress(pct);
+      btnAuto.textContent = `${tested}/${total} (最佳 ${bestRate.toFixed(1)}%)`;
     }
 
-    if (!bestResult) {
-      showStatus('未找到有效参数组合', 'error');
-      return;
+    if (type === 'optimize-done') {
+      stopProgressAnimation();
+      setProgress(100);
+      currentResult = result;
+
+      // Update parameter inputs to best values
+      document.getElementById('minLen').value = bestParams.minLen;
+      document.getElementById('maxLen').value = bestParams.maxLen;
+      document.getElementById('minOcc').value = bestParams.minOcc;
+      document.getElementById('pitchTol').value = bestParams.pitchTol;
+      document.getElementById('maxPatterns').value = bestParams.maxPatterns;
+      document.getElementById('minRatio').value = bestParams.minRatio;
+
+      // Render
+      updateStatistics(currentResult);
+      const cov = Math.round(currentResult.compressionRate);
+      document.getElementById('fitRate').textContent = cov + '%';
+      document.getElementById('fitFill').style.width = Math.min(100, cov) + '%';
+
+      requestAnimationFrame(() => {
+        renderReconstruction(currentData, currentResult);
+        renderPatterns(currentResult);
+        renderTrunk(currentResult, currentData);
+        renderTimeline(currentData, currentResult);
+        renderXML(currentData, currentResult);
+      });
+
+      showStatus(
+        `优化完成: ${tested} 组合, 最佳 ${cov}% (minLen=${bestParams.minLen} maxLen=${bestParams.maxLen})`,
+        'success'
+      );
+
+      btnAnalyze.disabled = false;
+      btnAuto.disabled = false;
+      btnAuto.textContent = '自动优化';
+      btnCancel.style.display = 'none';
     }
 
-    // ---- Apply best result ----
-    currentResult = cosiatecCompress(
-      currentData.notes,
-      currentData.ppq,
-      {
-        minLen: bestResult.params.minLen,
-        maxLen: bestResult.params.maxLen,
-        minOcc: bestResult.params.minOcc,
-        pitchTol: bestResult.params.pitchTol,
-        timeTol: parseInt(document.getElementById('timeTol').value),
-        maxPatterns: bestResult.params.maxPatterns,
-        minRatio: bestResult.params.minRatio,
-        detectTrans: document.getElementById('detectTrans').checked,
-        iterative: document.getElementById('iterative').checked,
-      }
-    );
-
-    // Update parameter inputs
-    document.getElementById('minLen').value = bestResult.params.minLen;
-    document.getElementById('maxLen').value = bestResult.params.maxLen;
-    document.getElementById('minOcc').value = bestResult.params.minOcc;
-    document.getElementById('pitchTol').value = bestResult.params.pitchTol;
-    document.getElementById('maxPatterns').value = bestResult.params.maxPatterns;
-    document.getElementById('minRatio').value = bestResult.params.minRatio;
-
-    // Render
-    updateStatistics(currentResult);
-    const cov = Math.round(currentResult.compressionRate);
-    document.getElementById('fitRate').textContent = cov + '%';
-    document.getElementById('fitFill').style.width = Math.min(100, cov) + '%';
-
-    requestAnimationFrame(() => {
-      renderReconstruction(currentData, currentResult);
-      renderPatterns(currentResult);
-      renderTrunk(currentResult, currentData);
-      renderTimeline(currentData, currentResult);
-      renderXML(currentData, currentResult);
-    });
-
-    setProgress(100);
-    showStatus(
-      `优化完成: 测试 ${tested} 组合, 最佳压缩 ${cov}% (minLen=${bestResult.params.minLen} maxLen=${bestResult.params.maxLen} minOcc=${bestResult.params.minOcc} pitchTol=${bestResult.params.pitchTol} maxPat=${bestResult.params.maxPatterns} minRatio=${bestResult.params.minRatio})`,
-      'success'
-    );
-
-  } catch (err) {
-    if (err.message === '已取消') {
-      showStatus('优化已取消', 'error');
-    } else {
-      showStatus('优化失败: ' + err.message, 'error');
-      console.error(err);
+    if (type === 'error') {
+      stopProgressAnimation();
+      showStatus('优化失败: ' + e.data.message, 'error');
+      btnAnalyze.disabled = false;
+      btnAuto.disabled = false;
+      btnAuto.textContent = '自动优化';
+      btnCancel.style.display = 'none';
     }
-  } finally {
+  };
+
+  w.onerror = (err) => {
+    stopProgressAnimation();
+    showStatus('Worker 错误', 'error');
     btnAnalyze.disabled = false;
     btnAuto.disabled = false;
     btnAuto.textContent = '自动优化';
     btnCancel.style.display = 'none';
-    abortController = null;
-  }
+    console.error('Worker error:', err);
+  };
+
+  w.postMessage({
+    type: 'optimize',
+    notes: currentData.notes,
+    ppq: currentData.ppq,
+    opts: {
+      timeTol: parseInt(document.getElementById('timeTol').value),
+      detectTrans: document.getElementById('detectTrans').checked,
+      iterative: document.getElementById('iterative').checked,
+    },
+    maxTests: MAX_TESTS,
+  });
 }
 
 /**
- * Cancel any running auto-optimization.
+ * Cancel running auto-optimization or analysis.
  */
 function cancelOptimize() {
-  if (abortController) {
-    abortController.abort();
-  }
+  killWorker();
+  stopProgressAnimation();
+  setProgress(0);
+
+  const btnAnalyze = document.getElementById('btnAnalyze');
+  const btnAuto = document.getElementById('btnAutoOptimize');
+  const btnCancel = document.getElementById('btnCancel');
+  btnAnalyze.disabled = false;
+  btnAuto.disabled = false;
+  btnAuto.textContent = '自动优化';
+  btnCancel.style.display = 'none';
+
+  showStatus('已取消', 'error');
+}
+
+// ---- Status Messages ----
+
+/**
+ * Show a temporary status message.
+ * @param {string} msg
+ * @param {'success'|'error'} type
+ */
+function showStatus(msg, type) {
+  const el = document.getElementById('fileStatus');
+  el.textContent = msg;
+  el.className = `status show ${type}`;
+  setTimeout(() => el.classList.remove('show'), 5000);
 }
 
 /**
@@ -470,29 +435,46 @@ function copyXML() {
     .then(() => showStatus('已复制到剪贴板', 'success'));
 }
 
-// ---- Status & Progress ----
+// ---- Progress Bar ----
 
 /**
- * Show a status message.
- * @param {string} msg
- * @param {'success'|'error'} type
+ * Start the progress bar. Shows the bar and adds a subtle pulsing glow
+ * to indicate background computation is in progress.
  */
-function showStatus(msg, type) {
-  const el = document.getElementById('fileStatus');
-  el.textContent = msg;
-  el.className = `status show ${type}`;
-  setTimeout(() => el.classList.remove('show'), 4000);
+function startProgressAnimation() {
+  const bar = document.getElementById('progressBar');
+  bar.classList.add('show', 'computing');
+  document.getElementById('progressFill').style.width = '5%';
 }
 
 /**
- * Update progress bar.
- * @param {number} pct - Percentage (0–100)
+ * Update the progress bar to a specific percentage.
+ * CSS transition handles smooth animation.
+ * @param {number} pct - 0-100
+ */
+function updateProgress(pct) {
+  document.getElementById('progressFill').style.width = Math.min(100, Math.max(0, pct)) + '%';
+}
+
+/**
+ * Finish: jump to 100%, remove pulsing, hide after delay.
+ */
+function stopProgressAnimation() {
+  const bar = document.getElementById('progressBar');
+  bar.classList.remove('computing');
+  document.getElementById('progressFill').style.width = '100%';
+  setTimeout(() => {
+    bar.classList.remove('show');
+  }, 800);
+}
+
+/**
+ * Legacy setProgress — show bar and snap to value.
  */
 function setProgress(pct) {
   const bar = document.getElementById('progressBar');
-  const fill = document.getElementById('progressFill');
   bar.classList.add('show');
-  fill.style.width = pct + '%';
+  document.getElementById('progressFill').style.width = pct + '%';
   if (pct >= 100) {
     setTimeout(() => bar.classList.remove('show'), 500);
   }

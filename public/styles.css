@@ -337,7 +337,18 @@ pre {
   height: 100%;
   background: var(--accent);
   width: 0%;
-  transition: width 0.3s;
+  transition: width 0.15s ease-out;
+  will-change: width;
+}
+
+/* Pulsing glow when computing */
+.progress-bar.computing .progress-fill {
+  animation: progress-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes progress-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 /* ---- Reconstruction Canvas ---- */
