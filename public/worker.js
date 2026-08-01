@@ -818,13 +818,16 @@ self.onmessage = function(e) {
         iterative: opts.iterative !== false,
         useFingerprint: opts.useFingerprint || false,
         useRRT: opts.useRRT !== false,
-        onProgress: function(phase, detail) {
-          var now = performance.now();
-          if (!this._lastProg || now - this._lastProg > 150) {
-            self.postMessage({ type: 'progressive-progress', stage: 'standard', phase: phase, detail: detail });
-            this._lastProg = now;
-          }
-        },
+        onProgress: (function() {
+          var _lastProg = 0;
+          return function(phase, detail) {
+            var now = performance.now();
+            if (now - _lastProg > 150) {
+              self.postMessage({ type: 'progressive-progress', stage: 'standard', phase: phase, detail: detail });
+              _lastProg = now;
+            }
+          };
+        })(),
       });
       standardResult.stage = 'standard';
       self.postMessage({ type: 'progressive-result', stage: 'standard', result: standardResult });
@@ -841,13 +844,16 @@ self.onmessage = function(e) {
           maxPatterns: Math.min(opts.maxPatterns || 4, 4),
           minRatio: 1.3,
           iterative: true,
-          onProgress: function(phase, detail) {
-            var now = performance.now();
-            if (!this._lastDeepProg || now - this._lastDeepProg > 150) {
-              self.postMessage({ type: 'progressive-progress', stage: 'deep', phase: phase, detail: detail });
-              this._lastDeepProg = now;
-            }
-          },
+          onProgress: (function() {
+            var _lastDeepProg = 0;
+            return function(phase, detail) {
+              var now = performance.now();
+              if (now - _lastDeepProg > 150) {
+                self.postMessage({ type: 'progressive-progress', stage: 'deep', phase: phase, detail: detail });
+                _lastDeepProg = now;
+              }
+            };
+          })(),
         });
         deepResult.stage = 'deep';
         self.postMessage({ type: 'progressive-result', stage: 'deep', result: deepResult });
@@ -874,14 +880,16 @@ self.onmessage = function(e) {
         iterative: opts.algorithm === 'siateccompress' ? false : opts.iterative,
         useFingerprint: opts.useFingerprint || false,
         useRRT: opts.useRRT !== false,
-        onProgress: function(phase, detail) {
-          // Throttle progress messages to 150ms intervals
-          var now = performance.now();
-          if (!this._lastProgress || now - this._lastProgress > 150) {
-            self.postMessage({ type: 'progress', phase: phase, detail: detail });
-            this._lastProgress = now;
-          }
-        },
+        onProgress: (function() {
+          var _lastProgress = 0;
+          return function(phase, detail) {
+            var now = performance.now();
+            if (now - _lastProgress > 150) {
+              self.postMessage({ type: 'progress', phase: phase, detail: detail });
+              _lastProgress = now;
+            }
+          };
+        })(),
       };
       const result = cosiatecCompress(notes, ppq, analyzeOpts);
       // Tag result with algorithm
