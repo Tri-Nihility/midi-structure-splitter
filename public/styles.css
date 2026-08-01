@@ -535,3 +535,171 @@ pre {
 .stat-value.trunk {
   color: var(--trunk);
 }
+
+/* ---- Preset Select ---- */
+.preset-select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: .35rem .5rem;
+  border-radius: 5px;
+  font-size: .72rem;
+  margin-bottom: .6rem;
+  cursor: pointer;
+}
+.preset-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---- Focus Visible ---- */
+.btn:focus-visible, .tab:focus-visible, .dropzone:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.tab:focus-visible { outline-offset: -1px; }
+
+/* ---- Status Warning ---- */
+.status.warning {
+  background: rgba(230, 168, 23, .08);
+  color: #e6a817;
+  border: 1px solid rgba(230, 168, 23, .2);
+}
+
+/* ---- Status Close Button ---- */
+.status .status-close {
+  position: absolute;
+  right: .4rem;
+  top: .3rem;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1rem;
+  opacity: .6;
+  padding: 0 .2rem;
+  line-height: 1;
+}
+.status .status-close:hover { opacity: 1; }
+
+/* ---- Retry Button ---- */
+.status .retry-btn {
+  margin-left: .5rem;
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid currentColor;
+  color: inherit;
+  padding: .15rem .5rem;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: .7rem;
+}
+
+/* ---- Offline Banner ---- */
+.offline-banner {
+  display: none;
+  background: rgba(230, 168, 23, .12);
+  color: #e6a817;
+  border-bottom: 1px solid rgba(230, 168, 23, .25);
+  padding: .4rem 1rem;
+  text-align: center;
+  font-size: .75rem;
+}
+.offline-banner.show { display: block; }
+
+/* ---- History Card ---- */
+.history-item {
+  cursor: pointer;
+  padding: .35rem .5rem;
+  border-radius: 5px;
+  font-size: .72rem;
+  margin-bottom: .25rem;
+  transition: background .2s;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.history-item:hover { background: rgba(0, 212, 170, .06); }
+.history-item .hist-meta { color: var(--text2); font-size: .65rem; }
+
+/* ---- Help Overlay ---- */
+.help-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, .7);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+.help-overlay.show { display: flex; }
+.help-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .5);
+}
+.help-panel h3 { color: var(--accent); margin-bottom: .8rem; }
+.help-panel .kbd-row {
+  display: flex;
+  justify-content: space-between;
+  padding: .25rem 0;
+  font-size: .75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, .04);
+}
+.help-panel .kbd-key {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: .1rem .4rem;
+  font-family: monospace;
+  font-size: .7rem;
+  color: var(--accent);
+}
+.help-panel .kbd-close {
+  display: block;
+  width: 100%;
+  margin-top: 1rem;
+}
+
+/* ---- Skeleton Loading ---- */
+.skeleton {
+  background: linear-gradient(90deg, var(--panel) 25%, rgba(255, 255, 255, .03) 50%, var(--panel) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+@keyframes skeleton-pulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skeleton-block { height: 16px; margin-bottom: .4rem; }
+.skeleton-block.wide { width: 90%; }
+.skeleton-block.med { width: 60%; }
+.skeleton-block.short { width: 30%; }
+
+/* ---- Button Warn (Cancel) ---- */
+.btn-warn {
+  background: transparent;
+  color: var(--accent2);
+  border: 1px solid var(--accent2);
+}
+.btn-warn:hover { background: rgba(255, 107, 107, .08); }
+
+/* ---- Mobile Responsive ---- */
+@media (max-width: 640px) {
+  header { flex-direction: column; align-items: flex-start; padding: 1rem; }
+  .param-row { display: grid; grid-template-columns: 1fr auto; gap: .3rem; }
+  .pattern-card-meta { flex-direction: column; gap: .2rem; }
+  .tabs { overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+  .recon-canvas { height: 100px; }
+}
+@media (max-width: 480px) {
+  h1 { font-size: 1.1rem; }
+  .btn { min-height: 44px; padding: .6rem 1rem; }
+  .param-row input[type="number"] { min-height: 36px; width: 60px; }
+  body { touch-action: manipulation; }
+}

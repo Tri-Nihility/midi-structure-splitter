@@ -9,15 +9,18 @@
 </head>
 <body>
 
+<!-- Offline Banner -->
+<div class="offline-banner" id="offlineBanner">离线模式 — 本工具完全在浏览器中运行，无需网络连接</div>
+
 <!-- ======== Header ======== -->
 <header>
   <div>
     <h1>MIDI 压缩拆分器 (COSIATEC优化版)</h1>
-    <div class="subtitle">迭代剥离 + 压缩比优化 + 闵可夫斯基和分解</div>
+    <div class="subtitle">迭代剥离 + 压缩比优化 + 闵可夫斯基和分解 | <kbd style="font-size:.65rem;background:var(--bg);padding:.1rem .3rem;border-radius:3px;border:1px solid var(--border);cursor:pointer" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'?'}))">?</kbd> 快捷键</div>
   </div>
   <div style="display:flex;gap:.4rem">
-    <button class="btn btn-secondary" id="btnDemo">加载示例</button>
-    <button class="btn" id="btnExport" disabled>导出全部</button>
+    <button class="btn btn-secondary" id="btnDemo" aria-label="加载示例 MIDI 文件">加载示例</button>
+    <button class="btn" id="btnExport" disabled aria-label="导出全部 XML 文件">导出全部</button>
   </div>
 </header>
 
@@ -25,21 +28,21 @@
 <div class="container">
 
   <!-- ====== Sidebar ====== -->
-  <aside class="sidebar">
+  <aside class="sidebar" role="navigation" aria-label="控制面板">
 
     <!-- File Upload -->
     <div class="card">
       <h3>文件</h3>
-      <div class="dropzone" id="dropzone">
+      <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="点击或拖拽上传 MIDI 文件">
         <div class="icon">[+]</div>
         <p>点击或拖拽 MIDI 文件</p>
         <p style="font-size:.7rem;margin-top:.2rem">.mid / .midi</p>
       </div>
-      <input type="file" id="fileInput" accept=".mid,.midi">
-      <div class="progress-bar" id="progressBar">
+      <input type="file" id="fileInput" accept=".mid,.midi" aria-label="选择 MIDI 文件">
+      <div class="progress-bar" id="progressBar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
         <div class="progress-fill" id="progressFill"></div>
       </div>
-      <div id="fileStatus" class="status"></div>
+      <div id="fileStatus" class="status" role="alert"></div>
     </div>
 
     <!-- Info -->
@@ -69,6 +72,13 @@
     <!-- Parameters -->
     <div class="card">
       <h3>参数</h3>
+      <select class="preset-select" id="presetSelect" aria-label="参数预设">
+        <option value="">— 参数预设 —</option>
+        <option value="default">默认</option>
+        <option value="aggressive">激进压缩</option>
+        <option value="conservative">保守提取</option>
+        <option value="quick">快速预览</option>
+      </select>
       <div class="param-row">
         <label>最小模式长度</label>
         <input type="number" id="minLen" value="4" min="2" max="64">
@@ -155,16 +165,16 @@
   <main class="main">
 
     <!-- Tabs -->
-    <div class="tabs">
-      <button class="tab active" data-panel="recon">重建视图</button>
-      <button class="tab" data-panel="patterns">模式</button>
-      <button class="tab" data-panel="trunk">主干</button>
-      <button class="tab" data-panel="timeline">时间轴</button>
-      <button class="tab" data-panel="xml">XML</button>
+    <div class="tabs" role="tablist" aria-label="视图切换">
+      <button class="tab active" data-panel="recon" role="tab" aria-selected="true">重建视图</button>
+      <button class="tab" data-panel="patterns" role="tab" aria-selected="false">模式</button>
+      <button class="tab" data-panel="trunk" role="tab" aria-selected="false">主干</button>
+      <button class="tab" data-panel="timeline" role="tab" aria-selected="false">时间轴</button>
+      <button class="tab" data-panel="xml" role="tab" aria-selected="false">XML</button>
     </div>
 
     <!-- Panels -->
-    <div id="panel-recon" class="panel active">
+    <div id="panel-recon" class="panel active" role="tabpanel" aria-label="重建视图">
       <div id="reconContainer">
         <div class="empty-state">
           <div class="icon">[=]</div>
@@ -173,7 +183,7 @@
       </div>
     </div>
 
-    <div id="panel-patterns" class="panel">
+    <div id="panel-patterns" class="panel" role="tabpanel" aria-label="模式">
       <div id="patternsContainer">
         <div class="empty-state">
           <div class="icon">[~]</div>
@@ -182,7 +192,7 @@
       </div>
     </div>
 
-    <div id="panel-trunk" class="panel">
+    <div id="panel-trunk" class="panel" role="tabpanel" aria-label="主干">
       <div id="trunkContainer">
         <div class="empty-state">
           <div class="icon">[#]</div>
@@ -191,7 +201,7 @@
       </div>
     </div>
 
-    <div id="panel-timeline" class="panel">
+    <div id="panel-timeline" class="panel" role="tabpanel" aria-label="时间轴">
       <div id="timelineContainer">
         <div class="empty-state">
           <div class="icon">[-]</div>
@@ -200,7 +210,7 @@
       </div>
     </div>
 
-    <div id="panel-xml" class="panel">
+    <div id="panel-xml" class="panel" role="tabpanel" aria-label="XML">
       <div class="toolbar">
         <button class="btn btn-secondary" id="btnXMLRecon">下载重建XML</button>
         <button class="btn btn-secondary" id="btnXMLSplit">下载拆分XML</button>
@@ -211,6 +221,28 @@
 
   </main>
 </div>
+
+<!-- Keyboard Shortcuts Help Panel -->
+<div class="help-overlay" id="helpOverlay">
+<div class="help-panel" role="dialog" aria-label="键盘快捷键">
+<h3>键盘快捷键</h3>
+<div class="kbd-row"><span>打开文件</span><span class="kbd-key">Ctrl+O</span></div>
+<div class="kbd-row"><span>压缩分析</span><span class="kbd-key">Ctrl+Enter</span></div>
+<div class="kbd-row"><span>自动优化</span><span class="kbd-key">Ctrl+Shift+O</span></div>
+<div class="kbd-row"><span>加载示例</span><span class="kbd-key">Ctrl+D</span></div>
+<div class="kbd-row"><span>导出全部</span><span class="kbd-key">Ctrl+E</span></div>
+<div class="kbd-row"><span>取消操作</span><span class="kbd-key">Esc</span></div>
+<div class="kbd-row"><span>重建视图</span><span class="kbd-key">1</span></div>
+<div class="kbd-row"><span>模式</span><span class="kbd-key">2</span></div>
+<div class="kbd-row"><span>主干</span><span class="kbd-key">3</span></div>
+<div class="kbd-row"><span>时间轴</span><span class="kbd-key">4</span></div>
+<div class="kbd-row"><span>XML</span><span class="kbd-key">5</span></div>
+<div class="kbd-row"><span>显示帮助</span><span class="kbd-key">?</span></div>
+<button class="btn kbd-close" onclick="document.getElementById('helpOverlay').classList.remove('show')">关闭</button>
+</div>
+</div>
+
+<!-- Analysis History Card (injected by app.js) -->
 
 <!-- Application Script (ES Module) -->
 <script type="module">

@@ -38,6 +38,20 @@ let progressAnimId = null;
 /** @type {ArrayBuffer|null} Raw MIDI file buffer for caching */
 let currentFileBuffer = null;
 
+/** @type {boolean} Whether the current operation is cancelled */
+let _cancelled = false;
+
+/** @type {Array} Analysis history (last 5 results) */
+const analysisHistory = [];
+
+/** Parameter presets */
+const PRESETS = {
+  'default': { minLen: 4, maxLen: 64, minOcc: 2, pitchTol: 0, timeTol: 6, maxPatterns: 6, minRatio: 2.0, detectTrans: true, iterative: true, fastMode: false, useFingerprint: false },
+  'aggressive': { minLen: 2, maxLen: 128, minOcc: 2, pitchTol: 2, timeTol: 8, maxPatterns: 12, minRatio: 1.3, detectTrans: true, iterative: true, fastMode: false, useFingerprint: false },
+  'conservative': { minLen: 8, maxLen: 32, minOcc: 3, pitchTol: 0, timeTol: 4, maxPatterns: 4, minRatio: 2.5, detectTrans: true, iterative: true, fastMode: false, useFingerprint: false },
+  'quick': { minLen: 4, maxLen: 32, minOcc: 2, pitchTol: 0, timeTol: 4, maxPatterns: 3, minRatio: 1.5, detectTrans: false, iterative: true, fastMode: true, useFingerprint: false }
+};
+
 // ---- Analysis Cache ----
 
 /**
@@ -434,6 +448,9 @@ function finishAnalysis(result, btn) {
   document.getElementById('fitRate').textContent = cov + '%';
   document.getElementById('fitFill').style.width = Math.min(100, cov) + '%';
 
+  // Add to history
+  addHistory(result);
+
   // Step 1: Immediately update progress bar and button (this frame)
   btn.disabled = false;
   btn.textContent = '压缩分析';
@@ -591,15 +608,120 @@ function cancelOptimize() {
 // ---- Status Messages ----
 
 /**
- * Show a temporary status message.
+ * Show a status message.
+ * Error messages persist (no auto-hide). Success/warning auto-hide after 5s.
  * @param {string} msg
- * @param {'success'|'error'} type
+ * @param {'success'|'error'|'warning'} type
  */
 function showStatus(msg, type) {
   const el = document.getElementById('fileStatus');
-  el.textContent = msg;
+  el.innerHTML = msg + '<button class="status-close" onclick="this.parentElement.classList.remove(\'show\')" aria-label="关闭">&times;</button>';
   el.className = `status show ${type}`;
-  setTimeout(() => el.classList.remove('show'), 5000);
+  if (type !== 'error') {
+    setTimeout(() => { if (el.classList.contains('show')) el.classList.remove('show'); }, 5000);
+  }
+}
+
+/**
+ * Show an error with a retry button.
+ * @param {string} msg
+ * @param {Function} retryFn
+ */
+function showError(msg, retryFn) {
+  const el = document.getElementById('fileStatus');
+  el.innerHTML = msg + ' <button class="retry-btn">重试</button><button class="status-close" onclick="this.parentElement.classList.remove(\'show\')">&times;</button>';
+  el.className = 'status show error';
+  if (retryFn) {
+    el.querySelector('.retry-btn').onclick = retryFn;
+  }
+}
+
+/**
+ * Apply a parameter preset.
+ * @param {string} name - Preset name
+ */
+function applyPreset(name) {
+  if (!PRESETS[name]) return;
+  const p = PRESETS[name];
+  document.getElementById('minLen').value = p.minLen;
+  document.getElementById('maxLen').value = p.maxLen;
+  document.getElementById('minOcc').value = p.minOcc;
+  document.getElementById('pitchTol').value = p.pitchTol;
+  document.getElementById('timeTol').value = p.timeTol;
+  document.getElementById('maxPatterns').value = p.maxPatterns;
+  document.getElementById('minRatio').value = p.minRatio;
+  document.getElementById('detectTrans').checked = p.detectTrans;
+  document.getElementById('iterative').checked = p.iterative;
+  const fastModeEl = document.getElementById('fastMode');
+  if (fastModeEl) fastModeEl.checked = p.fastMode;
+  const fpEl = document.getElementById('useFingerprint');
+  if (fpEl) fpEl.checked = p.useFingerprint;
+  const labelMap = { 'default': '默认', 'aggressive': '激进压缩', 'conservative': '保守提取', 'quick': '快速预览' };
+  showStatus(`已应用预设: ${labelMap[name] || name}`, 'success');
+}
+
+// ---- Analysis History ----
+
+/**
+ * Add a result to the analysis history and render.
+ * @param {object} result
+ */
+function addHistory(result) {
+  analysisHistory.unshift({
+    time: new Date().toLocaleTimeString(),
+    file: currentFileName,
+    patterns: result.patterns.length,
+    compression: result.compressionRate.toFixed(1),
+    result: result
+  });
+  if (analysisHistory.length > 5) analysisHistory.pop();
+  renderHistory();
+}
+
+/**
+ * Render the analysis history sidebar card.
+ */
+function renderHistory() {
+  const card = document.getElementById('historyCard');
+  if (!card) {
+    // Dynamically create history card if not present
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar) return;
+    const newCard = document.createElement('div');
+    newCard.className = 'card';
+    newCard.id = 'historyCard';
+    newCard.innerHTML = '<h3>分析历史</h3><div id="historyList"></div>';
+    sidebar.appendChild(newCard);
+  }
+  const list = document.getElementById('historyList');
+  if (!list) return;
+
+  const cardEl = document.getElementById('historyCard');
+  if (analysisHistory.length === 0) { cardEl.style.display = 'none'; return; }
+  cardEl.style.display = 'block';
+
+  let h = '';
+  analysisHistory.forEach((item, i) => {
+    h += `<div class="history-item" data-idx="${i}">
+      <span>${item.file} <span class="hist-meta">${item.patterns} 模式 | ${item.compression}%</span></span>
+      <span class="hist-meta">${item.time}</span>
+    </div>`;
+  });
+  list.innerHTML = h;
+
+  // Bind click events
+  list.querySelectorAll('.history-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = parseInt(el.dataset.idx);
+      const item = analysisHistory[idx];
+      if (item && item.result) {
+        currentResult = item.result;
+        currentFileName = item.file;
+        finishAnalysis(item.result, document.getElementById('btnAnalyze'));
+        showStatus(`已恢复: ${item.file} (${item.time})`, 'success');
+      }
+    });
+  });
 }
 
 /**
@@ -624,7 +746,10 @@ function updateStatistics(result) {
  * @param {Element} [clickedEl] - The clicked tab element (optional)
  */
 function switchTab(name, clickedEl) {
-  document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.classList.remove('active');
+    t.setAttribute('aria-selected', 'false');
+  });
   document
     .querySelectorAll('.panel')
     .forEach((p) => p.classList.remove('active'));
@@ -632,6 +757,7 @@ function switchTab(name, clickedEl) {
   // Highlight the clicked tab if provided
   if (clickedEl) {
     clickedEl.classList.add('active');
+    clickedEl.setAttribute('aria-selected', 'true');
   }
 
   document.getElementById('panel-' + name).classList.add('active');
@@ -846,6 +972,64 @@ export function initApp() {
 
   // Demo button
   document.getElementById('btnDemo')?.addEventListener('click', loadDemo);
+
+  // Preset selector
+  const presetSelect = document.getElementById('presetSelect');
+  if (presetSelect) {
+    presetSelect.addEventListener('change', function() {
+      applyPreset(this.value);
+    });
+  }
+
+  // ---- Keyboard Shortcuts ----
+  document.addEventListener('keydown', function(e) {
+    // Don't intercept when user is typing in inputs
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    const mod = e.ctrlKey || e.metaKey;
+
+    if (mod && e.key === 'o') { e.preventDefault(); document.getElementById('fileInput').click(); }
+    else if (mod && e.key === 'Enter') { e.preventDefault(); if (!document.getElementById('btnAnalyze').disabled) analyze(); }
+    else if (mod && e.shiftKey && e.key === 'O') { e.preventDefault(); if (!document.getElementById('btnAutoOptimize').disabled) autoOptimize(); }
+    else if (mod && e.key === 'd') { e.preventDefault(); loadDemo(); }
+    else if (mod && e.key === 'e') { e.preventDefault(); exportAll(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancelOptimize(); }
+    else if (e.key === '?' && !mod) { e.preventDefault();
+      const overlay = document.getElementById('helpOverlay');
+      if (overlay) overlay.classList.toggle('show');
+    }
+    else if (e.key === '1' && !mod) { const t = document.querySelector('.tab[data-panel="recon"]'); if (t) switchTab('recon', t); }
+    else if (e.key === '2' && !mod) { const t = document.querySelector('.tab[data-panel="patterns"]'); if (t) switchTab('patterns', t); }
+    else if (e.key === '3' && !mod) { const t = document.querySelector('.tab[data-panel="trunk"]'); if (t) switchTab('trunk', t); }
+    else if (e.key === '4' && !mod) { const t = document.querySelector('.tab[data-panel="timeline"]'); if (t) switchTab('timeline', t); }
+    else if (e.key === '5' && !mod) { const t = document.querySelector('.tab[data-panel="xml"]'); if (t) switchTab('xml', t); }
+  });
+
+  // ---- Dropzone keyboard accessibility ----
+  dropzone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      fileInput.click();
+    }
+  });
+
+  // ---- Help overlay click-outside-to-close ----
+  const helpOverlay = document.getElementById('helpOverlay');
+  if (helpOverlay) {
+    helpOverlay.addEventListener('click', function(e) {
+      if (e.target === helpOverlay) helpOverlay.classList.remove('show');
+    });
+  }
+
+  // ---- Offline detection ----
+  function updateOnlineStatus() {
+    const banner = document.getElementById('offlineBanner');
+    if (!banner) return;
+    if (navigator.onLine) { banner.classList.remove('show'); }
+    else { banner.classList.add('show'); }
+  }
+  window.addEventListener('online', updateOnlineStatus);
+  window.addEventListener('offline', updateOnlineStatus);
+  updateOnlineStatus();
 }
 
 export { processFile, analyze, switchTab, exportAll, downloadXML, copyXML, loadDemo };
