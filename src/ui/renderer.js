@@ -3,7 +3,7 @@
  *
  * Handles all DOM-based visualization:
  *   - Reconstruction view (color-coded piano roll)
- *   - Pattern cards with visual preview
+ *   - Pattern cards with visual preview (virtual scrolling for 20+ patterns)
  *   - Trunk timeline
  *   - Timeline view per track
  *
@@ -19,6 +19,83 @@ export const PALETTE = [
   '#ef476f', '#06d6a0', '#9b5de5', '#f15bb5',
   '#00bbf9', '#fee440',
 ];
+
+// ---- Virtual List for Pattern Library ----
+
+/**
+ * Virtual scrolling list that only renders visible items.
+ * Eliminates DOM bottleneck when displaying 50+ pattern cards.
+ */
+class VirtualList {
+  /**
+   * @param {HTMLElement} container  - Scrollable container element
+   * @param {number}      itemHeight - Estimated height per item in px
+   * @param {Function}    renderFn   - (item, index) => HTML string
+   */
+  constructor(container, itemHeight, renderFn) {
+    this.container = container;
+    this.itemHeight = itemHeight;
+    this.renderFn = renderFn;
+    this.items = [];
+    this.visibleCount = 0;
+
+    // Create inner content wrapper
+    this.contentEl = document.createElement('div');
+    this.contentEl.style.position = 'relative';
+    this.container.appendChild(this.contentEl);
+
+    // Debounced scroll handler
+    this._scrollTicking = false;
+    this._onScrollBound = this._onScroll.bind(this);
+    this.container.addEventListener('scroll', this._onScrollBound);
+  }
+
+  /**
+   * Replace all items and re-render.
+   * @param {any[]} items
+   */
+  setItems(items) {
+    this.items = items;
+    this.visibleCount = Math.ceil(this.container.clientHeight / this.itemHeight) + 3;
+    this.contentEl.style.height = `${items.length * this.itemHeight}px`;
+    this._render();
+  }
+
+  /** Clean up event listeners. */
+  destroy() {
+    this.container.removeEventListener('scroll', this._onScrollBound);
+    this.contentEl.innerHTML = '';
+  }
+
+  /** Scroll event handler (debounced via requestAnimationFrame). */
+  _onScroll() {
+    if (!this._scrollTicking) {
+      this._scrollTicking = true;
+      requestAnimationFrame(() => {
+        this._render();
+        this._scrollTicking = false;
+      });
+    }
+  }
+
+  /** Render only visible items. */
+  _render() {
+    const scrollTop = this.container.scrollTop;
+    const startIdx = Math.max(0, Math.floor(scrollTop / this.itemHeight) - 1);
+    const endIdx = Math.min(this.items.length, startIdx + this.visibleCount + 2);
+
+    // Build HTML for visible range
+    let html = '';
+    for (let i = startIdx; i < endIdx; i++) {
+      const top = i * this.itemHeight;
+      html += `<div style="position:absolute;top:${top}px;left:0;right:0">${this.renderFn(this.items[i], i)}</div>`;
+    }
+    this.contentEl.innerHTML = html;
+  }
+}
+
+/** Active virtual list instance (recreated per render). */
+let patternVirtualList = null;
 
 /**
  * Render the reconstruction (piano roll) view.
@@ -92,6 +169,9 @@ export function renderReconstruction(data, result) {
 /**
  * Render the pattern library view.
  *
+ * Uses virtual scrolling when there are 20+ patterns to avoid
+ * DOM performance bottlenecks.
+ *
  * @param {object} result - Compression result
  */
 export function renderPatterns(result) {
@@ -102,15 +182,21 @@ export function renderPatterns(result) {
     return;
   }
 
-  let html = '';
-  result.patterns.forEach((p, i) => {
+  // Destroy previous virtual list
+  if (patternVirtualList) {
+    patternVirtualList.destroy();
+    patternVirtualList = null;
+  }
+
+  // Build pattern card render function
+  const renderCard = (p, i) => {
     const color = PALETTE[i % PALETTE.length];
     const pitches = p.notes.map((n) => n.pitch);
     const minRP = Math.min(...pitches);
     const maxRP = Math.max(...pitches);
     const range = maxRP - minRP || 1;
 
-    html += `<div class="pattern-card" style="border-left:3px solid ${color}">
+    return `<div class="pattern-card" style="border-left:3px solid ${color}">
       <div class="pattern-card-header">
         <span class="pattern-card-title" style="color:${color}">模式 #${i + 1} (COSIATEC轮次 ${p.round})</span>
         <span class="pattern-card-meta">
@@ -137,9 +223,27 @@ export function renderPatterns(result) {
           .join('')}
       </div>
     </div>`;
-  });
+  };
 
-  container.innerHTML = html;
+  // Use virtual scrolling for 20+ patterns, direct render for fewer
+  if (result.patterns.length >= 20) {
+    // Set up container for virtual scrolling
+    container.style.maxHeight = '70vh';
+    container.style.overflowY = 'auto';
+    container.style.position = 'relative';
+
+    patternVirtualList = new VirtualList(container, 110, renderCard);
+    patternVirtualList.setItems(result.patterns);
+  } else {
+    // Direct DOM render for small pattern counts
+    container.style.maxHeight = '';
+    container.style.overflowY = '';
+    let html = '';
+    result.patterns.forEach((p, i) => {
+      html += renderCard(p, i);
+    });
+    container.innerHTML = html;
+  }
 }
 
 /**

@@ -467,6 +467,30 @@ pre {
   margin: 0.1rem;
 }
 
+/* ---- Virtual Scroll Container ---- */
+#patternsContainer.virtual-scroll {
+  max-height: 70vh;
+  overflow-y: auto;
+  position: relative;
+  scroll-behavior: smooth;
+}
+
+/* Scrollbar styling for pattern container */
+#patternsContainer::-webkit-scrollbar {
+  width: 6px;
+}
+#patternsContainer::-webkit-scrollbar-track {
+  background: var(--bg);
+  border-radius: 3px;
+}
+#patternsContainer::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+#patternsContainer::-webkit-scrollbar-thumb:hover {
+  background: var(--text2);
+}
+
 /* ---- Trunk Timeline ---- */
 .trunk-timeline {
   position: relative;

@@ -35,6 +35,95 @@ let worker = null;
 /** @type {number} Animation frame ID for progress bar pulse */
 let progressAnimId = null;
 
+/** @type {ArrayBuffer|null} Raw MIDI file buffer for caching */
+let currentFileBuffer = null;
+
+// ---- Analysis Cache ----
+
+/**
+ * LRU cache for analysis results keyed by file content hash.
+ * Avoids re-analyzing the same file with the same parameters.
+ */
+class AnalysisCache {
+  constructor(maxSize = 8) {
+    /** @type {Map<string, {result: object, opts: object}>} */
+    this.cache = new Map();
+    this.maxSize = maxSize;
+  }
+
+  /**
+   * Compute a hash from an ArrayBuffer for cache keying.
+   * Uses first 4KB of the file for speed.
+   * @param {ArrayBuffer} buffer
+   * @returns {string} Hex hash string
+   */
+  getKey(buffer) {
+    const sampleLen = Math.min(buffer.byteLength, 4096);
+    const sample = new Uint8Array(buffer.slice(0, sampleLen));
+    let hash = 0;
+    for (let i = 0; i < sample.length; i++) {
+      hash = ((hash << 5) - hash) + sample[i];
+      hash |= 0; // Convert to 32-bit integer
+    }
+    // Mix in file size for better distribution
+    return (hash >>> 0).toString(16) + '_' + buffer.byteLength.toString(16);
+  }
+
+  /**
+   * Generate a full cache key from buffer + options.
+   * @param {ArrayBuffer} buffer
+   * @param {object} opts
+   * @returns {string}
+   */
+  getFullKey(buffer, opts) {
+    const fileKey = this.getKey(buffer);
+    const optStr = JSON.stringify(opts, Object.keys(opts).sort());
+    return fileKey + '|' + optStr;
+  }
+
+  /**
+   * Check if a cached result exists for these inputs.
+   * @param {ArrayBuffer} buffer
+   * @param {object} opts
+   * @returns {object|null} Cached result or null
+   */
+  get(buffer, opts) {
+    const key = this.getFullKey(buffer, opts);
+    const entry = this.cache.get(key);
+    if (entry) {
+      // Move to end (most recently used)
+      this.cache.delete(key);
+      this.cache.set(key, entry);
+      return entry.result;
+    }
+    return null;
+  }
+
+  /**
+   * Store a result in the cache.
+   * @param {ArrayBuffer} buffer
+   * @param {object} opts
+   * @param {object} result
+   */
+  set(buffer, opts, result) {
+    const key = this.getFullKey(buffer, opts);
+    // Evict oldest if at capacity
+    if (this.cache.size >= this.maxSize) {
+      const firstKey = this.cache.keys().next().value;
+      this.cache.delete(firstKey);
+    }
+    this.cache.set(key, { result, opts: { ...opts } });
+  }
+
+  /** Clear all cached results. */
+  clear() {
+    this.cache.clear();
+  }
+}
+
+/** Global analysis cache instance. */
+const analysisCache = new AnalysisCache(8);
+
 // ---- File Handling ----
 
 /**
@@ -54,7 +143,9 @@ function processFile(file) {
   reader.onload = (e) => {
     try {
       setProgress(50);
-      const parsed = new MidiParser(e.target.result).parse();
+      // Save raw buffer for caching
+      currentFileBuffer = e.target.result;
+      const parsed = new MidiParser(currentFileBuffer).parse();
       currentData = midiToNotes(parsed);
       setProgress(80);
 
@@ -125,6 +216,8 @@ function killWorker() {
 /**
  * Run COSIATEC analysis via Web Worker to keep UI responsive.
  * Shows an animated progress bar while computing.
+ * Uses cache to avoid re-analyzing same file+params.
+ * Supports progressive mode: Stage 1 preview, Stage 2 standard, Stage 3 deep.
  */
 function analyze() {
   if (!currentData) return;
@@ -136,15 +229,112 @@ function analyze() {
   // Kill any previous worker
   killWorker();
 
+  // Collect current parameter options
+  const opts = {
+    minLen: parseInt(document.getElementById('minLen').value),
+    maxLen: parseInt(document.getElementById('maxLen').value),
+    maxOcc: parseInt(document.getElementById('minOcc').value),
+    minOcc: parseInt(document.getElementById('minOcc').value),
+    pitchTol: parseInt(document.getElementById('pitchTol').value),
+    timeTol: parseInt(document.getElementById('timeTol').value),
+    maxPatterns: parseInt(document.getElementById('maxPatterns').value),
+    minRatio: parseFloat(document.getElementById('minRatio').value),
+    detectTrans: document.getElementById('detectTrans').checked,
+    iterative: document.getElementById('iterative').checked,
+  };
+
+  // Check cache first
+  if (currentFileBuffer) {
+    const cached = analysisCache.get(currentFileBuffer, opts);
+    if (cached) {
+      currentResult = cached;
+      finishAnalysis(cached, btn);
+      showStatus('缓存命中 — 秒出结果', 'success');
+      return;
+    }
+  }
+
   // Show animated progress bar
   startProgressAnimation();
 
   const w = getWorker();
 
-  w.onmessage = (e) => {
-    const { type, phase, detail, result } = e.data;
+  // Determine analysis mode: progressive for larger files, direct for small
+  const useProgressive = currentData.notes.length > 500;
+  const msgType = useProgressive ? 'analyze-progressive' : 'analyze';
 
-    if (type === 'progress') {
+  w.onmessage = (e) => {
+    const { type, phase, detail, result, stage } = e.data;
+
+    // Progressive: stage transitions
+    if (type === 'progressive-stage') {
+      if (stage === 'preview') {
+        updateProgress(5);
+        btn.textContent = '预览中...';
+      } else if (stage === 'preview-done') {
+        updateProgress(25);
+        var info = e.data.previewInfo || {};
+        btn.textContent = '标准分析中...';
+        showStatus('预览: 发现约 ' + (info.foundCount || 0) + ' 个潜在模式, 覆盖 ' + (info.totalCoverage || 0) + ' 音符', 'success');
+      } else if (stage === 'standard') {
+        updateProgress(30);
+        btn.textContent = '标准分析中...';
+      } else if (stage === 'deep') {
+        updateProgress(70);
+        btn.textContent = '深度分析中...';
+      }
+    }
+
+    // Progressive: intermediate results (standard stage only)
+    if (type === 'progressive-result') {
+      if (stage === 'standard') {
+        updateProgress(65);
+        currentResult = result;
+        requestAnimationFrame(() => {
+          updateStatistics(result);
+          const cov = Math.round(result.compressionRate);
+          document.getElementById('fitRate').textContent = cov + '%';
+          document.getElementById('fitFill').style.width = Math.min(100, cov) + '%';
+          renderReconstruction(currentData, result);
+          renderPatterns(result);
+          renderTrunk(result, currentData);
+          renderTimeline(currentData, result);
+          renderXML(currentData, result);
+        });
+      } else if (stage === 'deep') {
+        updateProgress(90);
+      }
+    }
+
+    // Progressive: progress within a stage
+    if (type === 'progressive-progress') {
+      if (phase === 'round') {
+        const base = stage === 'standard' ? 35 : 75;
+        updateProgress(base + Math.min(20, detail.round * 5));
+      }
+    }
+
+    // Progressive: all done
+    if (type === 'progressive-done') {
+      stopProgressAnimation();
+      setProgress(100);
+
+      // Cache the final (standard) result
+      if (currentFileBuffer && currentResult) {
+        analysisCache.set(currentFileBuffer, opts, currentResult);
+      }
+
+      const cov = Math.round(currentResult.compressionRate);
+      let msg = `COSIATEC完成: ${currentResult.patterns.length} 模式, 压缩 ${cov}%`;
+      if (currentResult.wasDownsampled) msg += ' (已启用采样优化)';
+      showStatus(msg, 'success');
+
+      btn.disabled = false;
+      btn.textContent = '压缩分析';
+    }
+
+    // Direct (non-progressive) analysis
+    if (type === 'progress' && msgType === 'analyze') {
       if (phase === 'start') {
         updateProgress(15);
       } else if (phase === 'round') {
@@ -159,6 +349,12 @@ function analyze() {
       stopProgressAnimation();
       setProgress(100);
       currentResult = result;
+
+      // Cache the result
+      if (currentFileBuffer) {
+        analysisCache.set(currentFileBuffer, opts, result);
+      }
+
       finishAnalysis(result, btn);
     }
 
@@ -180,20 +376,13 @@ function analyze() {
     console.error('Worker error:', err);
   };
 
-  const opts = {
-    minLen: parseInt(document.getElementById('minLen').value),
-    maxLen: parseInt(document.getElementById('maxLen').value),
-    maxOcc: parseInt(document.getElementById('minOcc').value),
-    minOcc: parseInt(document.getElementById('minOcc').value),
-    pitchTol: parseInt(document.getElementById('pitchTol').value),
-    timeTol: parseInt(document.getElementById('timeTol').value),
-    maxPatterns: parseInt(document.getElementById('maxPatterns').value),
-    minRatio: parseFloat(document.getElementById('minRatio').value),
-    detectTrans: document.getElementById('detectTrans').checked,
-    iterative: document.getElementById('iterative').checked,
-  };
-
-  w.postMessage({ type: 'analyze', notes: currentData.notes, ppq: currentData.ppq, opts });
+  w.postMessage({
+    type: msgType,
+    notes: currentData.notes,
+    ppq: currentData.ppq,
+    opts,
+    deep: useProgressive, // Enable deep analysis for larger files
+  });
 }
 
 /**
