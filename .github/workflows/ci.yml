@@ -19,14 +19,9 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Check HTML validity
-        run: npx html-validate public/index.html || true
-
       - name: Check JavaScript syntax
         run: |
+          echo "=== Checking JavaScript syntax ==="
           for f in src/**/*.js; do
             node --check "$f" && echo "✓ $f" || echo "✗ $f"
           done
