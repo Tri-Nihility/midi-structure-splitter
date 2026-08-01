@@ -32,3 +32,5 @@ coverage/
 # Temp
 tmp/
 temp/
+scripts/push_bypass.py
+scripts/push_commit.py

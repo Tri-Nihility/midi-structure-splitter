@@ -1018,10 +1018,20 @@ function loadDemo() {
  */
 export function initApp() {
   // Pre-fetch Worker script for Blob URL fallback (assigns to module-level _workerCode)
-  const workerScriptUrl = new URL('../../public/worker.js', import.meta.url).href;
-  fetch(workerScriptUrl)
-    .then(r => r.text())
-    .then(code => { _workerCode = code; })
+  // Resolve worker path the same way as getWorker()
+  const workerUrl = new URL('../../public/worker.js', import.meta.url).href;
+  fetch(workerUrl)
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      // Verify it's actually JavaScript, not a 404 HTML page
+      return r.text();
+    })
+    .then(code => {
+      if (code.trim().startsWith('<!') || code.trim().startsWith('<html')) {
+        throw new Error('Worker script appears to be HTML (likely 404 page)');
+      }
+      _workerCode = code;
+    })
     .catch(e => console.warn('[initApp] Worker script pre-fetch failed:', e.message));
 
   // Drag-and-drop + click to open file picker
