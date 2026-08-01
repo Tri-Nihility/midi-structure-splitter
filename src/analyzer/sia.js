@@ -214,14 +214,20 @@ export function extractContiguousSegments(mtpPoints, minLen = 3, maxGap = 200) {
 export function findAllOccurrences(segment, allNotes, pitchTol = 0, timeTol = 6) {
   if (segment.length < 2) return [];
 
+  // Normalize segment notes to have consistent {t, p} accessors.
+  // Points from MTP have .t/.p; raw notes from Phase B have .start/.pitch.
+  const getT = (sn) => sn.t ?? sn.start;
+  const getP = (sn) => sn.p ?? sn.pitch;
+
   const occurrences = [];
   const segLen = segment.length;
   const segFirst = segment[0];
   const segLast = segment[segLen - 1];
-  const segDuration = segLast.t - segFirst.t;
+  const segFirstT = getT(segFirst);
+  const segFirstP = getP(segFirst);
+  const segLastT = getT(segLast);
 
-  // Build a time-based lookup
-  // For each note, record its index
+  // Build a time-based lookup: for each note, record its index
   const notesByTime = new Map();
   allNotes.forEach((n, i) => {
     const t = n.start;
@@ -232,23 +238,24 @@ export function findAllOccurrences(segment, allNotes, pitchTol = 0, timeTol = 6)
   // For each note in the dataset, try it as the anchor (first note of an occurrence)
   for (let anchorIdx = 0; anchorIdx < allNotes.length; anchorIdx++) {
     const anchor = allNotes[anchorIdx];
-    const dx = anchor.start - segFirst.t;
-    const dy = anchor.pitch - segFirst.p;
+    const dx = anchor.start - segFirstT;
+    const dy = anchor.pitch - segFirstP;
 
-    // Skip zero (it's the original)
+    // Skip zero translation (it's the original occurrence)
     if (dx === 0 && dy === 0) continue;
 
-    // Quick reject: the last note of the segment should also be in range
-    const lastExpectedT = segLast.t + dx;
-    if (lastExpectedT > (allNotes[allNotes.length - 1]?.end || 0) + timeTol) continue;
+    // Quick reject: the last note of the segment must fit in the data range
+    const lastExpectedT = segLastT + dx;
+    const maxEnd = allNotes[allNotes.length - 1]?.end || 0;
+    if (lastExpectedT > maxEnd + timeTol) continue;
 
     // Verify all segment notes exist at translated positions
     const matchedIndices = [];
     let valid = true;
 
     for (const segNote of segment) {
-      const targetT = segNote.t + dx;
-      const targetP = segNote.p + dy;
+      const targetT = getT(segNote) + dx;
+      const targetP = getP(segNote) + dy;
 
       // Find a note at (targetT ± timeTol, targetP ± pitchTol)
       let found = false;

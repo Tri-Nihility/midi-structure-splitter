@@ -107,44 +107,61 @@ export function cosiatecCompress(notes, ppq, opts = {}) {
       const segments = extractContiguousSegments(mtp.points, minLen, maxGap);
 
       for (const seg of segments) {
-        if (seg.length < minLen || seg.length > maxLen) continue;
+        if (seg.length < minLen) continue;
 
-        // Deduplicate: same segment detected via different MTPs
-        const segKey = seg.map(p => p.id).sort().join(',');
-        if (seenSegments.has(segKey)) continue;
-        seenSegments.add(segKey);
+        // For segments that are too large, try progressively smaller
+        // sub-segments (prefixes) to find the best pattern size.
+        // This is critical: a large MTP segment may contain multiple
+        // concatenated pattern instances that should be split.
+        const segSizes = [];
+        if (seg.length <= maxLen) {
+          segSizes.push(seg.length);
+        }
+        // Also try sub-segment sizes: the first N notes
+        // Try sizes from minLen up to min(maxLen, seg.length)
+        for (let sz = minLen; sz <= Math.min(maxLen, seg.length); sz += minLen) {
+          if (!segSizes.includes(sz)) segSizes.push(sz);
+        }
 
-        // Find all DIATECH occurrences
-        const occs = findAllOccurrences(seg, remainingNotes, pTol, opts.timeTol || 6);
+        for (const size of segSizes) {
+          const subSeg = seg.slice(0, size);
 
-        // occurrences + original = total instances
-        const totalInstances = occs.length + 1;
+          // Deduplicate
+          const segKey = subSeg.map(p => p.id).sort().join(',');
+          if (seenSegments.has(segKey)) continue;
+          seenSegments.add(segKey);
 
-        if (totalInstances < minOcc) continue;
+          // Find all DIATECH occurrences
+          const occs = findAllOccurrences(subSeg, remainingNotes, pTol, opts.timeTol || 6);
 
-        // Coverage: seg.length * totalInstances
-        const coverage = seg.length * totalInstances;
+          // occurrences + original = total instances
+          const totalInstances = occs.length + 1;
 
-        // Compression ratio: how many notes we encode vs how many we'd store
-        // cost = template size + (num occurrences * 2 for dx,dy)
-        const cost = seg.length + occs.length * 2;
-        const ratio = coverage / Math.max(1, cost);
+          if (totalInstances < minOcc) continue;
 
-        if (ratio < minRatio) continue;
+          // Coverage: subSeg.length * totalInstances
+          const coverage = subSeg.length * totalInstances;
 
-        // Score: prioritize high coverage (big patterns with many repeats)
-        const score = coverage * ratio;
+          // Compression ratio
+          const cost = subSeg.length + occs.length * 2;
+          const ratio = coverage / Math.max(1, cost);
 
-        candidates.push({
-          segment: seg,
-          occurrences: occs,
-          totalInstances,
-          coverage,
-          ratio,
-          score,
-          round,
-          source: 'mtp',
-        });
+          if (ratio < minRatio) continue;
+
+          // Score: prioritize high coverage (big patterns with many repeats)
+          const score = coverage * ratio;
+
+          candidates.push({
+            segment: subSeg,
+            occurrences: occs,
+            totalInstances,
+            coverage,
+            ratio,
+            score,
+            round,
+            source: 'mtp',
+          });
+        }
       }
     }
 
