@@ -40,6 +40,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Prepare deploy directory
+        run: |
+          # Copy src/ into public/ so ES modules are accessible
+          cp -r src public/src
+          # Fix import path in index.html: ../src/ -> ./src/
+          sed -i "s|from '../src/|from './src/|g" public/index.html
+          sed -i "s|import { initApp } from '../src/|import { initApp } from './src/|g" public/index.html
+          echo "=== Deploy directory contents ==="
+          ls -la public/ && ls -la public/src/
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
