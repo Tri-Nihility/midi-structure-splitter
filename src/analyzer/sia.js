@@ -448,6 +448,7 @@ export function findAllOccurrences(segment, allNotes, pitchTol = 0, timeTol = 6)
 
     // Verify all segment notes exist at translated positions
     const matchedIndices = [];
+    const matchedSet = new Set();
     let valid = true;
 
     for (const segNote of segment) {
@@ -461,7 +462,8 @@ export function findAllOccurrences(segment, allNotes, pitchTol = 0, timeTol = 6)
         if (!bucket) continue;
         for (const { note, idx } of bucket) {
           if (Math.abs(note.pitch - targetP) <= pitchTol) {
-            if (!matchedIndices.includes(idx)) {
+            if (!matchedSet.has(idx)) {
+              matchedSet.add(idx);
               matchedIndices.push(idx);
               found = true;
               break;

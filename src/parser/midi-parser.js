@@ -230,6 +230,13 @@ export function midiToNotes(parsed) {
 
       if (event.type === 'noteOn') {
         const key = `${trackIdx}-${event.channel}-${event.note}`;
+        // Handle overlapping notes: if a note with the same key is already
+        // active (NoteOn before previous NoteOff), close the old note first
+        // to prevent silent note loss.
+        if (active[key]) {
+          const oldNote = active[key];
+          notes.push({ ...oldNote, end: tick, dur: tick - oldNote.start });
+        }
         active[key] = {
           track: trackIdx,
           ch: event.channel,

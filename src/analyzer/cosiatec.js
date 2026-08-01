@@ -269,6 +269,10 @@ export function cosiatecCompress(notes, ppq, opts = {}) {
     if (remainingNotes.length <= 500) {
       const sortedNotes = [...remainingNotes].sort((a, b) => a.start - b.start);
 
+      // Pre-build index map for O(1) note-to-index lookup (used in segKey generation)
+      const sortedIndexMap = new Map();
+      sortedNotes.forEach((n, i) => { sortedIndexMap.set(n, i); });
+
       // Pre-compute repeat potential for all starting positions
       const hasPotential = computeRepeatPotential(sortedNotes, minLen, pTol, opts.timeTol || 6);
 
@@ -285,7 +289,7 @@ export function cosiatecCompress(notes, ppq, opts = {}) {
           segment.push(sortedNotes[j]);
 
           if (segment.length >= minLen) {
-            const segKey = segment.map(n => sortedNotes.indexOf(n)).sort().join(',');
+            const segKey = segment.map(n => sortedIndexMap.get(n)).sort((a, b) => a - b).join(',');
             if (seenSegments.has(segKey)) continue;
             seenSegments.add(segKey);
 

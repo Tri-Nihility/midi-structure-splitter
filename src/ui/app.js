@@ -192,11 +192,14 @@ function processFile(file) {
 
 /**
  * Get or create the Web Worker. Reuses existing worker if available.
+ * Uses a URL relative to the current script to handle different deployment paths.
  * @returns {Worker}
  */
 function getWorker() {
   if (!worker) {
-    worker = new Worker('worker.js');
+    // Use import.meta.url to resolve worker path relative to this module
+    const workerUrl = new URL('../../../public/worker.js', import.meta.url);
+    worker = new Worker(workerUrl.href);
   }
   return worker;
 }
@@ -572,18 +575,18 @@ function updateStatistics(result) {
 
 /**
  * Switch between display tabs.
- * @param {string} name - Tab name: 'recon', 'patterns', 'trunk', 'timeline', 'xml'
+ * @param {string}  name       - Tab name: 'recon', 'patterns', 'trunk', 'timeline', 'xml'
+ * @param {Element} [clickedEl] - The clicked tab element (optional)
  */
-function switchTab(name) {
+function switchTab(name, clickedEl) {
   document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
   document
     .querySelectorAll('.panel')
     .forEach((p) => p.classList.remove('active'));
 
-  // The clicked tab
-  const event = window._lastTabEvent;
-  if (event && event.target) {
-    event.target.classList.add('active');
+  // Highlight the clicked tab if provided
+  if (clickedEl) {
+    clickedEl.classList.add('active');
   }
 
   document.getElementById('panel-' + name).classList.add('active');
@@ -787,7 +790,7 @@ export function initApp() {
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.addEventListener('click', function () {
       const panel = this.getAttribute('data-panel');
-      if (panel) switchTab(panel);
+      if (panel) switchTab(panel, this);
     });
   });
 
