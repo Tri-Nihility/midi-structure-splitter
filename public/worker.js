@@ -220,7 +220,7 @@ function buildSpatialIndex(points, timeBits, pitchBits) {
   pitchBits = pitchBits || 8;
   const index = new Map();
   for (const p of points) {
-    const key = (p.t << pitchBits) | (p.p & 0xFF);
+    const key = p.t + ':' + p.p;
     let bucket = index.get(key);
     if (!bucket) { bucket = []; index.set(key, bucket); }
     bucket.push(p);
@@ -229,8 +229,7 @@ function buildSpatialIndex(points, timeBits, pitchBits) {
 }
 
 function lookupSpatialIndex(spatialIndex, t, p) {
-  const { index, pitchBits } = spatialIndex;
-  return index.get((t << pitchBits) | (p & 0xFF));
+  return spatialIndex.index.get(t + ':' + p);
 }
 
 // ---- Contiguous Segments ----
@@ -252,14 +251,17 @@ function extractContiguousSegments(mtpPoints, minLen, maxGap) {
 
 // ---- DIATECH: Find All Occurrences ----
 
-function findAllOccurrences(segment, allNotes, pitchTol, timeTol) {
+function findAllOccurrences(segment, allNotes, pitchTol, timeTol, notesByTime) {
   if (segment.length < 2) return [];
   const getT = (sn) => sn.t ?? sn.start;
   const getP = (sn) => sn.p ?? sn.pitch;
   const segFirst = segment[0], segLast = segment[segment.length - 1];
   const segFirstT = getT(segFirst), segFirstP = getP(segFirst), segLastT = getT(segLast);
-  const notesByTime = new Map();
-  allNotes.forEach((n, i) => { const t = n.start; if (!notesByTime.has(t)) notesByTime.set(t, []); notesByTime.get(t).push({ note: n, idx: i }); });
+  // Use pre-built time index if provided, otherwise build one
+  if (!notesByTime) {
+    notesByTime = new Map();
+    allNotes.forEach((n, i) => { const t = n.start; if (!notesByTime.has(t)) notesByTime.set(t, []); notesByTime.get(t).push({ note: n, idx: i }); });
+  }
   const occurrences = [];
   for (let anchorIdx = 0; anchorIdx < allNotes.length; anchorIdx++) {
     const anchor = allNotes[anchorIdx];
@@ -332,14 +334,14 @@ const SIAR_THRESHOLD = 3000;
 function buildFastLookup(notes) {
   const indexMap = new Map();
   notes.forEach((n, i) => {
-    const key = (n.track << 24) | (n.start << 8) | (n.pitch & 0xFF);
+    const key = n.track + ':' + n.start + ':' + n.pitch;
     indexMap.set(key, i);
   });
   return indexMap;
 }
 
 function fastLookupIndex(lookup, note) {
-  const key = (note.track << 24) | ((note.t ?? note.start) << 8) | ((note.p ?? note.pitch) & 0xFF);
+  const key = note.track + ':' + (note.t ?? note.start) + ':' + (note.p ?? note.pitch);
   return lookup.get(key) ?? -1;
 }
 
@@ -349,9 +351,15 @@ function computeRepeatPotential(sortedNotes, minLen, pTol, timeTol) {
   const n = sortedNotes.length;
   const hasPotential = new Array(n).fill(false);
   const prefixLen = Math.min(3, minLen);
+  // Pre-build time index for all findAllOccurrences calls
+  var nbt = new Map();
+  sortedNotes.forEach(function(n2, i) {
+    if (!nbt.has(n2.start)) nbt.set(n2.start, []);
+    nbt.get(n2.start).push({ note: n2, idx: i });
+  });
   for (let i = 0; i <= n - prefixLen; i++) {
     const prefix = sortedNotes.slice(i, i + prefixLen);
-    const prefixOccs = findAllOccurrences(prefix, sortedNotes, pTol, timeTol);
+    const prefixOccs = findAllOccurrences(prefix, sortedNotes, pTol, timeTol, nbt);
     hasPotential[i] = prefixOccs.length > 0;
   }
   return hasPotential;
@@ -494,6 +502,14 @@ function cosiatecCompress(notes, ppq, opts) {
   while (remainingNotes.length >= minLen && round < maxPat) {
     round++;
     onProgress('round', { round, remaining: remainingNotes.length });
+
+    // Pre-build time index for findAllOccurrences (shared across all Phase A/B/C calls)
+    var notesByTimeW = new Map();
+    remainingNotes.forEach(function(n, i) {
+      if (!notesByTimeW.has(n.start)) notesByTimeW.set(n.start, []);
+      notesByTimeW.get(n.start).push({ note: n, idx: i });
+    });
+
     const points = notesToPoints(remainingNotes);
     const spatialIndex = buildSpatialIndex(points);
     const candidates = [];
@@ -521,7 +537,7 @@ function cosiatecCompress(notes, ppq, opts) {
           const segKey = subSeg.map(function(p){return p.id;}).sort().join(',');
           if (seenSegments.has(segKey)) continue;
           seenSegments.add(segKey);
-          const occs = findAllOccurrences(subSeg, remainingNotes, pTol, opts.timeTol || 6);
+          const occs = findAllOccurrences(subSeg, remainingNotes, pTol, opts.timeTol || 6, notesByTimeW);
           const totalInstances = occs.length + 1;
           if (totalInstances < minOcc) continue;
           const coverage = subSeg.length * totalInstances;
@@ -538,6 +554,11 @@ function cosiatecCompress(notes, ppq, opts) {
     // ---- Phase B: Direct scan with pruning ----
     if (remainingNotes.length <= 500) {
       const sortedNotes = remainingNotes.slice().sort((a, b) => a.start - b.start);
+
+      // Pre-build O(1) note-to-index map to avoid O(n) indexOf
+      const noteToIndex = new Map();
+      sortedNotes.forEach((n, i) => noteToIndex.set(n, i));
+
       const hasPotential = computeRepeatPotential(sortedNotes, minLen, pTol, opts.timeTol || 6);
       for (let startIdx = 0; startIdx < sortedNotes.length; startIdx++) {
         if (!hasPotential[startIdx]) continue;  // Prune 70-90%
@@ -547,14 +568,14 @@ function cosiatecCompress(notes, ppq, opts) {
           if (gap > ppq * 4) break;
           segment.push(sortedNotes[j]);
           if (segment.length >= minLen) {
-            const segKey = segment.map(function(n){return sortedNotes.indexOf(n);}).sort().join(',');
+            const segKey = segment.map(function(n){return noteToIndex.get(n);}).sort(function(a,b){return a-b;}).join(',');
             if (seenSegments.has(segKey)) continue;
             seenSegments.add(segKey);
             // Prefix quick-check: prune branch if short prefix doesn't repeat
             const prefixLen = Math.min(segment.length, 4);
-            const prefixCheck = findAllOccurrences(segment.slice(0, prefixLen), remainingNotes, pTol, opts.timeTol || 6);
+            const prefixCheck = findAllOccurrences(segment.slice(0, prefixLen), remainingNotes, pTol, opts.timeTol || 6, notesByTimeW);
             if (prefixCheck.length === 0) break;
-            const occs = findAllOccurrences(segment, remainingNotes, pTol, opts.timeTol || 6);
+            const occs = findAllOccurrences(segment, remainingNotes, pTol, opts.timeTol || 6, notesByTimeW);
             const totalInstances = occs.length + 1;
             if (totalInstances < minOcc) continue;
             const coverage = segment.length * totalInstances;
@@ -572,6 +593,8 @@ function cosiatecCompress(notes, ppq, opts) {
     // ---- Phase C: Fingerprint-based discovery ----
     if (round === 1 && opts.useFingerprint && remainingNotes.length >= minLen * 2) {
       var sortedNotesFp = remainingNotes.slice().sort(function(a,b){return a.start - b.start;});
+      var fpNoteToIndex = new Map();
+      sortedNotesFp.forEach(function(n, i) { fpNoteToIndex.set(n, i); });
       var maxFingerprintScans = Math.min(sortedNotesFp.length, 100);
       for (var fpIdx = 0; fpIdx < maxFingerprintScans; fpIdx++) {
         var fpSegment = [sortedNotesFp[fpIdx]];
@@ -580,7 +603,7 @@ function cosiatecCompress(notes, ppq, opts) {
           if (fpGap > ppq * 4) break;
           fpSegment.push(sortedNotesFp[fpJ]);
           if (fpSegment.length >= minLen) {
-            var fpSegKey = fpSegment.map(function(n){return sortedNotesFp.indexOf(n);}).sort().join(',');
+            var fpSegKey = fpSegment.map(function(n){return fpNoteToIndex.get(n);}).sort(function(a,b){return a-b;}).join(',');
             if (seenSegments.has(fpSegKey)) continue;
             seenSegments.add(fpSegKey);
             var fpOccs = findOccurrencesByFingerprint(fpSegment, remainingNotes, pTol, 0.2);
@@ -796,7 +819,11 @@ self.onmessage = function(e) {
         useFingerprint: opts.useFingerprint || false,
         useRRT: opts.useRRT !== false,
         onProgress: function(phase, detail) {
-          self.postMessage({ type: 'progressive-progress', stage: 'standard', phase: phase, detail: detail });
+          var now = performance.now();
+          if (!this._lastProg || now - this._lastProg > 150) {
+            self.postMessage({ type: 'progressive-progress', stage: 'standard', phase: phase, detail: detail });
+            this._lastProg = now;
+          }
         },
       });
       standardResult.stage = 'standard';
@@ -815,7 +842,11 @@ self.onmessage = function(e) {
           minRatio: 1.3,
           iterative: true,
           onProgress: function(phase, detail) {
-            self.postMessage({ type: 'progressive-progress', stage: 'deep', phase: phase, detail: detail });
+            var now = performance.now();
+            if (!this._lastDeepProg || now - this._lastDeepProg > 150) {
+              self.postMessage({ type: 'progressive-progress', stage: 'deep', phase: phase, detail: detail });
+              this._lastDeepProg = now;
+            }
           },
         });
         deepResult.stage = 'deep';
@@ -844,7 +875,12 @@ self.onmessage = function(e) {
         useFingerprint: opts.useFingerprint || false,
         useRRT: opts.useRRT !== false,
         onProgress: function(phase, detail) {
-          self.postMessage({ type: 'progress', phase: phase, detail: detail });
+          // Throttle progress messages to 150ms intervals
+          var now = performance.now();
+          if (!this._lastProgress || now - this._lastProgress > 150) {
+            self.postMessage({ type: 'progress', phase: phase, detail: detail });
+            this._lastProgress = now;
+          }
         },
       };
       const result = cosiatecCompress(notes, ppq, analyzeOpts);

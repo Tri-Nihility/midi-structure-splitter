@@ -98,13 +98,138 @@ class VirtualList {
 let patternVirtualList = null;
 
 /**
- * Render the reconstruction (piano roll) view.
- * Shows all notes color-coded by pattern membership.
+ * Render reconstruction view — auto-switches to Canvas for large datasets (>2000 notes)
+ * to avoid DOM node explosion.
  *
  * @param {object} data   - Original note data
  * @param {object} result - Compression result
  */
 export function renderReconstruction(data, result) {
+  // Auto-switch to Canvas for >2000 notes to avoid DOM explosion
+  if (data.notes.length > 2000) {
+    return renderReconstructionCanvas(data, result);
+  }
+  return renderReconstructionDOM(data, result);
+}
+
+/**
+ * Canvas-based reconstruction view for large datasets (>2000 notes).
+ * Renders the piano roll using Canvas 2D instead of DOM divs,
+ * eliminating the DOM node explosion problem.
+ *
+ * @param {object} data   - Original note data
+ * @param {object} result - Compression result
+ */
+export function renderReconstructionCanvas(data, result) {
+  const container = document.getElementById('reconContainer');
+  if (!result.patterns.length && !result.trunk.length) {
+    container.innerHTML =
+      '<div class="empty-state"><div class="icon">[=]</div><p>无重建数据</p></div>';
+    return;
+  }
+
+  const maxT = Math.max(...data.notes.map((n) => n.end), 1);
+  const minP = Math.min(...data.notes.map((n) => n.pitch));
+  const maxP = Math.max(...data.notes.map((n) => n.pitch));
+  const pRange = maxP - minP || 1;
+
+  // Build coverage map (same as DOM version)
+  const coveredBy = new Map();
+  result.patterns.forEach((p, pi) => {
+    p.occurrences.forEach((o) => {
+      o.noteIds.forEach((id) => {
+        const n = data.notes[id];
+        if (n) coveredBy.set(`${n.track}-${n.start}-${n.pitch}`, pi);
+      });
+    });
+  });
+
+  // Build legend HTML (kept as DOM for accessibility)
+  let legendHtml = '<div class="recon-legend">';
+  legendHtml += `<div class="recon-legend-item"><div class="recon-dot" style="background:var(--trunk)"></div>主干 (${result.trunk.length})</div>`;
+  result.patterns.forEach((p, i) => {
+    legendHtml += `<div class="recon-legend-item"><div class="recon-dot" style="background:${PALETTE[i % PALETTE.length]}"></div>模式 #${i + 1} (${p.occurrences.length}次)</div>`;
+  });
+  legendHtml += `<div class="recon-legend-item" style="margin-left:auto"><span style="color:var(--text2)">压缩 ${result.compressionRate.toFixed(1)}%</span></div>`;
+  legendHtml += '</div>';
+
+  // Create or reuse Canvas
+  let canvas = container.querySelector('canvas');
+  if (!canvas) {
+    canvas = document.createElement('canvas');
+    canvas.style.width = '100%';
+    canvas.style.height = '400px';
+  }
+
+  const dpr = window.devicePixelRatio || 1;
+  const rect = container.getBoundingClientRect();
+  const cw = rect.width || 800;
+  const ch = 400;
+  canvas.width = cw * dpr;
+  canvas.height = ch * dpr;
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  // Clear
+  ctx.clearRect(0, 0, cw, ch);
+
+  // Draw piano roll background grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 0.5;
+  for (let p = minP; p <= maxP; p++) {
+    if (p % 12 === 0) { // Octave lines
+      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    } else {
+      ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    }
+    const y = ch - ((p - minP) / pRange) * (ch - 60) - 30;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(cw, y);
+    ctx.stroke();
+  }
+
+  // Draw notes
+  const noteH = Math.max(2, (ch - 60) / pRange);
+  data.notes.forEach((n) => {
+    const x = (n.start / maxT) * cw;
+    const w = Math.max(1, (n.dur / maxT) * cw);
+    const y = ch - ((n.pitch - minP) / pRange) * (ch - 60) - 30;
+
+    const key = `${n.track}-${n.start}-${n.pitch}`;
+    const patId = coveredBy.get(key);
+    ctx.fillStyle = patId !== undefined
+      ? PALETTE[patId % PALETTE.length]
+      : 'var(--trunk)';
+
+    // Resolve CSS variable for trunk color
+    if (patId === undefined) {
+      const trunkColor = getComputedStyle(document.documentElement)
+        .getPropertyValue('--trunk').trim() || '#555';
+      ctx.fillStyle = trunkColor;
+    }
+
+    ctx.fillRect(x, y, w, noteH);
+  });
+
+  // Set container content
+  container.innerHTML = legendHtml;
+  container.appendChild(canvas);
+}
+
+/**
+ * Render reconstruction view — auto-switches to Canvas for large datasets.
+ *
+ * @param {object} data   - Original note data
+ * @param {object} result - Compression result
+ */
+/**
+ * DOM-based reconstruction view (for small datasets ≤2000 notes).
+ * @param {object} data   - Original note data
+ * @param {object} result - Compression result
+ */
+function renderReconstructionDOM(data, result) {
   const container = document.getElementById('reconContainer');
   if (!result.patterns.length && !result.trunk.length) {
     container.innerHTML =
@@ -156,13 +281,6 @@ export function renderReconstruction(data, result) {
   });
   html += '</div></div>';
 
-  html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin-top:.5rem">';
-  html += `<div class="info-item"><div class="val">${result.patterns.length}</div><div class="lbl">模式数</div></div>`;
-  html += `<div class="info-item"><div class="val">${result.instanceCount}</div><div class="lbl">实例数</div></div>`;
-  html += `<div class="info-item"><div class="val" style="color:var(--trunk)">${result.trunk.length}</div><div class="lbl">主干音符</div></div>`;
-  html += `<div class="info-item"><div class="val">${result.compressionRate.toFixed(1)}%</div><div class="lbl">压缩率</div></div>`;
-  html += '</div>';
-
   container.innerHTML = html;
 }
 
@@ -176,6 +294,7 @@ export function renderReconstruction(data, result) {
  */
 export function renderPatterns(result) {
   const container = document.getElementById('patternsContainer');
+
   if (!result.patterns.length) {
     container.innerHTML =
       '<div class="empty-state"><div class="icon">[~]</div><p>未检测到重复模式</p></div>';

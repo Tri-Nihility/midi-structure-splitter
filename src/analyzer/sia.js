@@ -239,7 +239,8 @@ export function buildSpatialIndex(points, timeBits = 20, pitchBits = 8) {
   const index = new Map();
 
   for (const p of points) {
-    const key = (p.t << pitchBits) | (p.p & 0xFF);
+    // Use safe string key to avoid integer overflow for long pieces
+    const key = `${p.t}:${p.p}`;
     let bucket = index.get(key);
     if (!bucket) {
       bucket = [];
@@ -260,8 +261,8 @@ export function buildSpatialIndex(points, timeBits = 20, pitchBits = 8) {
  * @returns {object[]|undefined} Array of points at this position, or undefined
  */
 export function lookupSpatialIndex(spatialIndex, t, p) {
-  const { index, pitchBits } = spatialIndex;
-  return index.get((t << pitchBits) | (p & 0xFF));
+  const { index } = spatialIndex;
+  return index.get(`${t}:${p}`);
 }
 
 /**
@@ -301,15 +302,12 @@ export function findTranslators(patternPoints, spatialIndex, pitchTol = 0) {
   const first = patternPoints[0];
   const seen = new Set();
 
-  // Detect index type: integer-keyed ({index, ...}) vs legacy string-keyed (Map)
+  // Detect index type: wrapped ({index, ...}) vs legacy string-keyed (Map)
   const isOptimized = spatialIndex && spatialIndex.index instanceof Map;
   const index = isOptimized ? spatialIndex.index : spatialIndex;
-  const pitchBits = isOptimized ? spatialIndex.pitchBits : null;
 
-  // Lookup function based on index type
-  const doLookup = isOptimized
-    ? (t, p) => index.get((t << pitchBits) | (p & 0xFF))
-    : (t, p) => index.get(`${t},${p}`);
+  // Lookup function: all use safe string keys now
+  const doLookup = (t, p) => index.get(`${t}:${p}`);
 
   // Iterate through all indexed positions
   for (const [, bucket] of index) {
@@ -402,13 +400,14 @@ export function extractContiguousSegments(mtpPoints, minLen = 3, maxGap = 200) {
  * This is much more robust than the SIA vector-table approach for
  * whole-passage repetition detection.
  *
- * @param {object[]} segment    - Contiguous segment of notes (with original indices)
- * @param {object[]} allNotes   - All notes (sorted by start time)
- * @param {number}   pitchTol   - Pitch tolerance
- * @param {number}   timeTol    - Time tolerance in ticks
+ * @param {object[]}        segment     - Contiguous segment of notes (with original indices)
+ * @param {object[]}        allNotes    - All notes (sorted by start time)
+ * @param {number}          pitchTol    - Pitch tolerance
+ * @param {number}          timeTol     - Time tolerance in ticks
+ * @param {Map<number,object[]>} [notesByTime] - Pre-built time index (optional, avoids rebuild)
  * @returns {object[]} Array of { startIdx, dx, dy, noteIndices }
  */
-export function findAllOccurrences(segment, allNotes, pitchTol = 0, timeTol = 6) {
+export function findAllOccurrences(segment, allNotes, pitchTol = 0, timeTol = 6, notesByTime = null) {
   if (segment.length < 2) return [];
 
   // Normalize segment notes to have consistent {t, p} accessors.
@@ -424,13 +423,15 @@ export function findAllOccurrences(segment, allNotes, pitchTol = 0, timeTol = 6)
   const segFirstP = getP(segFirst);
   const segLastT = getT(segLast);
 
-  // Build a time-based lookup: for each note, record its index
-  const notesByTime = new Map();
-  allNotes.forEach((n, i) => {
-    const t = n.start;
-    if (!notesByTime.has(t)) notesByTime.set(t, []);
-    notesByTime.get(t).push({ note: n, idx: i });
-  });
+  // Use pre-built time index if provided, otherwise build one
+  if (!notesByTime) {
+    notesByTime = new Map();
+    allNotes.forEach((n, i) => {
+      const t = n.start;
+      if (!notesByTime.has(t)) notesByTime.set(t, []);
+      notesByTime.get(t).push({ note: n, idx: i });
+    });
+  }
 
   // For each note in the dataset, try it as the anchor (first note of an occurrence)
   for (let anchorIdx = 0; anchorIdx < allNotes.length; anchorIdx++) {

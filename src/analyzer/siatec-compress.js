@@ -59,6 +59,13 @@ function buildTECandidates(notes, ppq, opts) {
   const minOcc = opts.minOcc || 2;
   const pTol = opts.pitchTol || 0;
   const timeTol = opts.timeTol || 6;
+
+  // Pre-build time index for findAllOccurrences
+  const notesByTime = new Map();
+  notes.forEach((n, i) => {
+    if (!notesByTime.has(n.start)) notesByTime.set(n.start, []);
+    notesByTime.get(n.start).push({ note: n, idx: i });
+  });
   const minRatio = opts.minRatio || 1.5;
   const minCompactness = opts.minCompactness ?? 0.1;
 
@@ -82,7 +89,7 @@ function buildTECandidates(notes, ppq, opts) {
         if (seenSegments.has(segKey)) continue;
         seenSegments.add(segKey);
 
-        const occs = findAllOccurrences(subSeg, notes, pTol, timeTol);
+        const occs = findAllOccurrences(subSeg, notes, pTol, timeTol, notesByTime);
         const totalInstances = occs.length + 1;
 
         if (totalInstances < minOcc) continue;

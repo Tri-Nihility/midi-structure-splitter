@@ -47,17 +47,17 @@ const SIAR_THRESHOLD = 3000;
 /**
  * Build an O(1) lookup map from note identity to array index.
  *
- * Uses integer encoding: (track << 24) | (start << 8) | pitch
- * This avoids string concatenation overhead and is ~30% faster.
+ * Uses safe string keys to avoid 32-bit integer overflow
+ * for long MIDI files where start ticks can exceed 2^24.
  *
  * @param {object[]} notes
- * @returns {Map<number, number>} Integer key → array index
+ * @returns {Map<string, number>} String key → array index
  */
 function buildFastLookup(notes) {
   const indexMap = new Map();
   notes.forEach((n, i) => {
-    // Encode (track, start, pitch) as a single integer key
-    const key = (n.track << 24) | (n.start << 8) | (n.pitch & 0xFF);
+    // Safe string key: no overflow regardless of track/start/pitch values
+    const key = `${n.track}:${n.start}:${n.pitch}`;
     indexMap.set(key, i);
   });
   return indexMap;
@@ -66,12 +66,12 @@ function buildFastLookup(notes) {
 /**
  * Look up a note's index in O(1).
  *
- * @param {Map<number, number>} lookup - Result from buildFastLookup()
- * @param {object}              note   - Note with {track, start, pitch}
+ * @param {Map<string, number>} lookup - Result from buildFastLookup()
+ * @param {object}              note   - Note with {track, start, pitch} or point with {track, t, p}
  * @returns {number} Index or -1 if not found
  */
 function fastLookupIndex(lookup, note) {
-  const key = (note.track << 24) | ((note.t ?? note.start) << 8) | ((note.p ?? note.pitch) & 0xFF);
+  const key = `${note.track}:${note.t ?? note.start}:${note.p ?? note.pitch}`;
   return lookup.get(key) ?? -1;
 }
 
@@ -99,9 +99,16 @@ function computeRepeatPotential(sortedNotes, minLen, pTol, timeTol) {
 
   const prefixLen = Math.min(3, minLen);
 
+  // Pre-build time index for all the findAllOccurrences calls
+  const nbt = new Map();
+  sortedNotes.forEach((n2, i) => {
+    if (!nbt.has(n2.start)) nbt.set(n2.start, []);
+    nbt.get(n2.start).push({ note: n2, idx: i });
+  });
+
   for (let i = 0; i <= n - prefixLen; i++) {
     const prefix = sortedNotes.slice(i, i + prefixLen);
-    const prefixOccs = findAllOccurrences(prefix, sortedNotes, pTol, timeTol);
+    const prefixOccs = findAllOccurrences(prefix, sortedNotes, pTol, timeTol, nbt);
     hasPotential[i] = prefixOccs.length > 0;
   }
 
@@ -193,6 +200,13 @@ export function cosiatecCompress(notes, ppq, opts = {}) {
     round++;
     onProgress('round', { round, remaining: remainingNotes.length });
 
+    // Pre-build time index for findAllOccurrences (shared across all Phase A/B calls)
+    const notesByTime = new Map();
+    remainingNotes.forEach((n, i) => {
+      if (!notesByTime.has(n.start)) notesByTime.set(n.start, []);
+      notesByTime.get(n.start).push({ note: n, idx: i });
+    });
+
     const points = notesToPoints(remainingNotes);
     const spatialIndex = buildSpatialIndex(points);
     const candidates = [];
@@ -237,7 +251,7 @@ export function cosiatecCompress(notes, ppq, opts = {}) {
           seenSegments.add(segKey);
 
           // Find all DIATECH occurrences
-          const occs = findAllOccurrences(subSeg, remainingNotes, pTol, opts.timeTol || 6);
+          const occs = findAllOccurrences(subSeg, remainingNotes, pTol, opts.timeTol || 6, notesByTime);
 
           // occurrences + original = total instances
           const totalInstances = occs.length + 1;
@@ -308,11 +322,11 @@ export function cosiatecCompress(notes, ppq, opts = {}) {
             const prefixLen = Math.min(segment.length, 4);
             const prefixCheck = findAllOccurrences(
               segment.slice(0, prefixLen),
-              remainingNotes, pTol, opts.timeTol || 6
+              remainingNotes, pTol, opts.timeTol || 6, notesByTime
             );
             if (prefixCheck.length === 0) break; // No repeat potential → stop extending
 
-            const occs = findAllOccurrences(segment, remainingNotes, pTol, opts.timeTol || 6);
+            const occs = findAllOccurrences(segment, remainingNotes, pTol, opts.timeTol || 6, notesByTime);
             const totalInstances = occs.length + 1;
 
             if (totalInstances < minOcc) continue;

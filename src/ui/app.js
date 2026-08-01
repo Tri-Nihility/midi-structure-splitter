@@ -124,6 +124,21 @@ class AnalysisCache {
 /** Global analysis cache instance. */
 const analysisCache = new AnalysisCache(8);
 
+/**
+ * Schedule non-critical cache cleanup using requestIdleCallback.
+ * Evicts oldest entries when the browser is idle.
+ */
+function scheduleCacheCleanup() {
+  if (typeof requestIdleCallback !== 'undefined') {
+    requestIdleCallback((deadline) => {
+      while (deadline.timeRemaining() > 5 && analysisCache.cache.size > 4) {
+        const firstKey = analysisCache.cache.keys().next().value;
+        if (firstKey) analysisCache.cache.delete(firstKey);
+      }
+    }, { timeout: 5000 });
+  }
+}
+
 // ---- File Handling ----
 
 /**
@@ -139,10 +154,19 @@ function processFile(file) {
   currentFileName = file.name.replace(/\.(mid|midi)$/i, '');
   setProgress(20);
 
+  // Large file warning
+  if (file.size > 5 * 1024 * 1024) {
+    showStatus('文件较大，分析可能需要较长时间', 'warning');
+  }
+
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
       setProgress(50);
+      // Release old buffer to allow GC
+      if (currentFileBuffer) {
+        currentFileBuffer = null;
+      }
       // Save raw buffer for caching
       currentFileBuffer = e.target.result;
       const parsed = new MidiParser(currentFileBuffer).parse();
@@ -155,6 +179,13 @@ function processFile(file) {
       document.getElementById('infoDuration').textContent = Math.round(
         currentData.dur / currentData.ppq
       );
+
+      // Auto-downgrade for very large files (>8000 notes)
+      if (currentData.notes.length > 8000) {
+        const fastModeEl = document.getElementById('fastMode');
+        if (fastModeEl) fastModeEl.checked = true;
+        showStatus(`音符数超过 8000，已自动启用快速模式`, 'success');
+      }
 
       // Initialize empty XML display
       const emptyResult = {
@@ -393,6 +424,8 @@ function analyze() {
 
 /**
  * Finalize analysis: update stats, render views, re-enable button.
+ * Uses rAF → setTimeout pattern to first show progress completion,
+ * then defer heavy rendering to the next frame for better perceived performance.
  */
 function finishAnalysis(result, btn) {
   updateStatistics(result);
@@ -401,20 +434,26 @@ function finishAnalysis(result, btn) {
   document.getElementById('fitRate').textContent = cov + '%';
   document.getElementById('fitFill').style.width = Math.min(100, cov) + '%';
 
-  requestAnimationFrame(() => {
-    renderReconstruction(currentData, result);
-    renderPatterns(result);
-    renderTrunk(result, currentData);
-    renderTimeline(currentData, result);
-    renderXML(currentData, result);
-
-    let msg = `COSIATEC完成: ${result.patterns.length} 模式, 压缩 ${cov}%`;
-    if (result.wasDownsampled) msg += ' (已启用采样优化)';
-    showStatus(msg, 'success');
-  });
-
+  // Step 1: Immediately update progress bar and button (this frame)
   btn.disabled = false;
   btn.textContent = '压缩分析';
+
+  // Step 2: Defer heavy rendering to next frame via rAF → setTimeout
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      requestAnimationFrame(() => {
+        renderReconstruction(currentData, result);
+        renderPatterns(result);
+        renderTrunk(result, currentData);
+        renderTimeline(currentData, result);
+        renderXML(currentData, result);
+
+        let msg = `COSIATEC完成: ${result.patterns.length} 模式, 压缩 ${cov}%`;
+        if (result.wasDownsampled) msg += ' (已启用采样优化)';
+        showStatus(msg, 'success');
+      });
+    }, 0);
+  });
 }
 
 // ---- Auto-Optimization ----
